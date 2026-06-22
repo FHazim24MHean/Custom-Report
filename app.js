@@ -137,6 +137,17 @@ const MAIN_INTAKE_REPORT_COLUMNS = [
   "TX Pressure",
   "Power Quality (Event)",
 ];
+const POWER_QUALITY_REPORT_BASE_COLUMNS = [
+  "Category",
+  "Device",
+  "Start Time",
+  "Duration (ms)",
+  "Min. Voltage",
+  "Max. Voltage",
+  "Event Type",
+  "Phase",
+  "Voltage Sag",
+];
 
 const state = {
   projects: [],
@@ -149,6 +160,10 @@ const state = {
   configProjectName: API_CONFIG.defaultProjectName,
   latestReportRows: [],
   latestReportColumns: [],
+  latestMainIntakeRows: [],
+  latestMainIntakeColumns: [...MAIN_INTAKE_REPORT_COLUMNS],
+  latestPowerQualityRows: [],
+  latestPowerQualityColumns: [],
   latestCellClasses: {},
   latestColumnGroups: [],
   latestDeviceTables: [],
@@ -185,6 +200,9 @@ const reportTableBody = document.querySelector("#reportTable tbody");
 const mainIntakeReportSection = document.getElementById("mainIntakeReportSection");
 const mainIntakeReportTableHead = document.querySelector("#mainIntakeReportTable thead");
 const mainIntakeReportTableBody = document.querySelector("#mainIntakeReportTable tbody");
+const powerQualityReportSection = document.getElementById("powerQualityReportSection");
+const powerQualityReportTableHead = document.querySelector("#powerQualityReportTable thead");
+const powerQualityReportTableBody = document.querySelector("#powerQualityReportTable tbody");
 const deviceTabs = document.getElementById("deviceTabs");
 const dateTabs = document.getElementById("dateTabs");
 const statusMessage = document.getElementById("statusMessage");
@@ -852,6 +870,20 @@ function getProjectAssignedMainIntakeId(projectName, deviceId) {
 function getProjectAssignedMainIntake(projectName, deviceId) {
   const assignments = getProjectMainIntakeAssignments(projectName);
   return String(assignments[String(deviceId || "").trim()]?.mainIntakeName || "").trim() || "Unassigned";
+}
+
+function getDeviceReportCategory(deviceId, projectName = state.projectName) {
+  const mainIntakeName = getProjectAssignedMainIntake(projectName, deviceId);
+  if (mainIntakeName && mainIntakeName !== "Unassigned") {
+    return mainIntakeName;
+  }
+  const substationName = getProjectAssignedSubstation(projectName, deviceId);
+  return String(substationName || "").trim() || "Unassigned";
+}
+
+function isDeviceAssignedToMainIntake(deviceId, projectName = state.projectName) {
+  const mainIntakeName = getProjectAssignedMainIntake(projectName, deviceId);
+  return Boolean(mainIntakeName && mainIntakeName !== "Unassigned");
 }
 
 function getDeterministicDummyNumber(seedText, min, max, decimals = 1) {
@@ -2613,17 +2645,54 @@ async function onGenerateReport() {
     };
 
     const readings = await fetchReportRows(state.projectName, [...state.selectedDeviceIds], filters);
+    const nominalApiUrls = [...state.latestApiUrls];
+    let powerQualityRows = [];
+    let powerQualityFetchError = null;
+
+    if (filters.type !== "hist-events") {
+      try {
+        const powerQualityReadings = await fetchReportRows(
+          state.projectName,
+          [...state.selectedDeviceIds],
+          {
+            ...filters,
+            type: "hist-events",
+          }
+        );
+        const powerQualityApiUrls = [...state.latestApiUrls];
+        state.latestApiUrls = [...nominalApiUrls, ...powerQualityApiUrls];
+        powerQualityRows = buildPowerQualityReportRows(powerQualityReadings);
+      } catch (error) {
+        const powerQualityApiUrls = [...state.latestApiUrls];
+        state.latestApiUrls = [...nominalApiUrls, ...powerQualityApiUrls];
+        powerQualityFetchError = error;
+        console.warn("Power quality event fetch failed:", error);
+      }
+    } else {
+      state.latestApiUrls = nominalApiUrls;
+    }
+
     const table = buildDeviceMetricsTable(readings, [...state.selectedDeviceIds]);
     renderDeviceTables(table.deviceTables, table.columns, table.columnGroups);
-    renderMainIntakeReportTable();
+    renderMainIntakeReportTable(filters.type === "hist-events" ? [] : null);
+    renderPowerQualityReportTable(filters.type === "hist-events" ? [] : powerQualityRows);
 
     const urlHint = state.latestApiUrls[0] ? ` | URL: ${state.latestApiUrls[0]}` : "";
+    const powerQualityHint =
+      filters.type === "hist-events"
+        ? ""
+        : powerQualityFetchError
+          ? " | Power quality events unavailable"
+          : state.latestPowerQualityRows.length
+            ? ` | PQ Events: ${state.latestPowerQualityRows.length}`
+            : " | PQ Events: 0";
     setStatus(
-      `Report generated. Devices: ${table.deviceCount} | Readings: ${table.readingCount}${urlHint}`
+      `Report generated. Devices: ${table.deviceCount} | Readings: ${table.readingCount}${powerQualityHint}${urlHint}`
     );
   } catch (error) {
     renderDeviceTables([]);
     renderMainIntakeReportTable([]);
+    renderPowerQualityReportTable([]);
     const urlHint = state.latestApiUrls[0] ? ` | URL: ${state.latestApiUrls[0]}` : "";
     setStatus(`Report request failed. ${error.message}${urlHint}`, true);
   }
@@ -2865,30 +2934,60 @@ function buildDemoExtraNominalMetrics(
 function buildDemoEventReadings(deviceIds, filters) {
   const timestamps = buildDemoTimestamps(filters);
   const eventCatalog = [
-    "Breaker closed",
-    "Breaker opened",
-    "Power restored",
-    "Voltage dip detected",
-    "Current spike detected",
-    "Communication restored",
-    "Device restarted",
+    { type: "Under Voltage", phase: "L1-L2", sagMin: 8, sagMax: 18 },
+    { type: "Voltage Dip", phase: "L2-L3", sagMin: 10, sagMax: 22 },
+    { type: "Voltage Sag", phase: "L3-L1", sagMin: 12, sagMax: 28 },
+    { type: "Short Interruption", phase: "L1-N", sagMin: 18, sagMax: 35 },
   ];
   const readings = [];
+  const deviceVoltageClassById = new Map(
+    (Array.isArray(state.devices) ? state.devices : []).map((device) => [
+      String(device?.devid || ""),
+      normalizeVoltageClass(device?.voltageClass),
+    ])
+  );
+  const nominalVoltageByClass = {
+    "400V": 415,
+    "11kV": 11000,
+    "33kV": 33000,
+  };
 
   deviceIds.forEach((deviceId) => {
     const deviceSeed = hashText(deviceId);
+    const voltageClass = normalizeVoltageClass(deviceVoltageClassById.get(String(deviceId)));
+    const nominalVoltage = nominalVoltageByClass[voltageClass] || nominalVoltageByClass[DEFAULT_VOLTAGE_CLASS];
     timestamps.forEach((capturedAt, timeIndex) => {
       const shouldEmit = timeIndex === 0 || (deviceSeed + timeIndex) % 3 === 0;
       if (!shouldEmit) {
         return;
       }
 
-      const eventText = eventCatalog[(deviceSeed + timeIndex) % eventCatalog.length];
+      const eventTemplate = eventCatalog[(deviceSeed + timeIndex) % eventCatalog.length];
+      const durationMs = Math.round(getDeterministicDummyNumber(`${deviceId}:${capturedAt}:duration`, 120, 960, 0));
+      const sagPercent = getDeterministicDummyNumber(
+        `${deviceId}:${capturedAt}:sag`,
+        eventTemplate.sagMin,
+        eventTemplate.sagMax,
+        2
+      );
+      const maxVoltage = getDeterministicDummyNumber(
+        `${deviceId}:${capturedAt}:maxvoltage`,
+        nominalVoltage * 0.98,
+        nominalVoltage * 1.02,
+        nominalVoltage >= 1000 ? 0 : 2
+      );
+      const minVoltage = Number((maxVoltage * (1 - sagPercent / 100)).toFixed(nominalVoltage >= 1000 ? 0 : 2));
       readings.push({
         deviceId,
         capturedAt,
         metrics: {
-          Event: eventText,
+          Event: `${eventTemplate.type} detected`,
+          EventType: eventTemplate.type,
+          Phase: eventTemplate.phase,
+          DurationMs: String(durationMs),
+          MinVoltage: String(minVoltage),
+          MaxVoltage: String(maxVoltage),
+          VoltageSag: String(sagPercent),
         },
       });
     });
@@ -3165,37 +3264,144 @@ function normalizeHistoricalEvents(payload, defaultDeviceId) {
         ""
     );
     const capturedAt =
-      item?.capturedAt ??
-      item?.timestamp ??
-      item?.time ??
-      item?.date ??
-      item?.eventTime ??
-      item?.ts ??
-      "";
+      pickFirstDefinedValue(item, [
+        "capturedAt",
+        "timestamp",
+        "time",
+        "date",
+        "eventTime",
+        "ts",
+        "event.timestamp",
+        "event.time",
+      ]) ?? "";
     const eventText =
-      item?.event ??
-      item?.eventName ??
-      item?.name ??
-      item?.description ??
-      item?.message ??
-      item?.status ??
-      item?.value ??
-      "";
+      pickFirstDefinedValue(item, [
+        "event",
+        "eventName",
+        "name",
+        "description",
+        "message",
+        "status",
+        "value",
+        "event.name",
+        "event.description",
+        "details",
+      ]) ?? "";
+    const eventType =
+      pickFirstDefinedValue(item, [
+        "eventType",
+        "type",
+        "event.type",
+        "event.eventType",
+      ]) ?? eventText;
+    const phase = pickFirstDefinedValue(item, [
+      "phase",
+      "phaseName",
+      "line",
+      "channel",
+      "event.phase",
+    ]);
+    const durationMs = pickFirstDefinedValue(item, [
+      "durationMs",
+      "duration",
+      "eventDuration",
+      "event.durationMs",
+      "event.duration",
+    ]);
+    const minVoltage = pickFirstDefinedValue(item, [
+      "minVoltage",
+      "minimumVoltage",
+      "min",
+      "low",
+      "lowestVoltage",
+      "event.minVoltage",
+      "metrics.minVoltage",
+    ]);
+    const maxVoltage = pickFirstDefinedValue(item, [
+      "maxVoltage",
+      "maximumVoltage",
+      "max",
+      "high",
+      "highestVoltage",
+      "event.maxVoltage",
+      "metrics.maxVoltage",
+    ]);
+    const voltageSag = pickFirstDefinedValue(item, [
+      "voltageSag",
+      "sag",
+      "sagPct",
+      "sagPercent",
+      "sagPercentage",
+      "event.voltageSag",
+      "metrics.voltageSag",
+    ]);
 
     if (!deviceId || !capturedAt) {
       return;
     }
 
+    const calculatedSag = calculateVoltageSagPercentage(minVoltage, maxVoltage);
     readings.push({
       deviceId,
       capturedAt: String(capturedAt),
       metrics: {
         Event: String(eventText),
+        EventType: String(eventType || eventText || ""),
+        Phase: phase === null || phase === undefined ? "" : String(phase),
+        DurationMs: durationMs === null || durationMs === undefined ? "" : String(durationMs),
+        MinVoltage: minVoltage === null || minVoltage === undefined ? "" : String(minVoltage),
+        MaxVoltage: maxVoltage === null || maxVoltage === undefined ? "" : String(maxVoltage),
+        VoltageSag:
+          voltageSag === null || voltageSag === undefined || String(voltageSag).trim() === ""
+            ? calculatedSag
+            : String(voltageSag),
       },
     });
   });
 
   return readings;
+}
+
+function pickFirstDefinedValue(source, candidates) {
+  const safeSource = source && typeof source === "object" ? source : null;
+  const safeCandidates = Array.isArray(candidates) ? candidates : [];
+  if (!safeSource) {
+    return "";
+  }
+
+  for (const candidate of safeCandidates) {
+    const value = getNestedValue(safeSource, candidate);
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return value;
+    }
+  }
+  return "";
+}
+
+function getNestedValue(source, path) {
+  const safePath = String(path || "").trim();
+  if (!safePath) {
+    return undefined;
+  }
+  return safePath.split(".").reduce((current, key) => {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    return current[key];
+  }, source);
+}
+
+function calculateVoltageSagPercentage(minVoltage, maxVoltage) {
+  const minNumeric = parseNumericValue(minVoltage);
+  const maxNumeric = parseNumericValue(maxVoltage);
+  if (!Number.isFinite(minNumeric) || !Number.isFinite(maxNumeric) || maxNumeric <= 0) {
+    return "";
+  }
+  const sag = ((maxNumeric - minNumeric) / maxNumeric) * 100;
+  if (!Number.isFinite(sag) || sag < 0) {
+    return "";
+  }
+  return sag.toFixed(2);
 }
 
 function getNominalMetricDefinition(metricName) {
@@ -3494,6 +3700,55 @@ function getNominalReportColumns(includeDate = true) {
   return columns;
 }
 
+function getPowerQualityReportColumns(includeDate = true) {
+  return [
+    "Category",
+    "Device",
+    ...(includeDate ? ["Date"] : []),
+    ...POWER_QUALITY_REPORT_BASE_COLUMNS.filter((column) => column !== "Category" && column !== "Device"),
+  ];
+}
+
+function buildPowerQualityReportRows(readings) {
+  const safeReadings = Array.isArray(readings) ? readings : [];
+  const includeDate = shouldIncludeDateColumn();
+  const rows = safeReadings
+    .map((reading) => {
+      const capturedAt = formatTimestamp(reading?.capturedAt || "");
+      const eventType = String(
+        reading?.metrics?.EventType ||
+          reading?.metrics?.Event ||
+          ""
+      ).trim();
+      if (!capturedAt || !eventType) {
+        return null;
+      }
+
+      return {
+        _capturedAt: capturedAt,
+        Category: getDeviceReportCategory(reading?.deviceId),
+        Device: getDeviceDisplayName(reading?.deviceId),
+        ...(includeDate ? { Date: getDateKey(capturedAt) } : {}),
+        "Start Time": getTimeKey(capturedAt),
+        "Duration (ms)": formatPowerQualityNumber(reading?.metrics?.DurationMs, 0),
+        "Min. Voltage": formatPowerQualityNumber(reading?.metrics?.MinVoltage, 2),
+        "Max. Voltage": formatPowerQualityNumber(reading?.metrics?.MaxVoltage, 2),
+        "Event Type": eventType,
+        Phase: String(reading?.metrics?.Phase || "").trim(),
+        "Voltage Sag": formatPowerQualityPercent(reading?.metrics?.VoltageSag),
+      };
+    })
+    .filter(Boolean);
+
+  rows.sort((left, right) =>
+    compareTextValues(left?.Category, right?.Category) ||
+    compareTextValues(left?.Device, right?.Device) ||
+    compareTextValues(left?._capturedAt, right?._capturedAt)
+  );
+
+  return rows;
+}
+
 function getDeviceDisplayName(deviceId) {
   const match = getDeviceRecordById(deviceId);
   if (!match) {
@@ -3574,8 +3829,10 @@ function renderDeviceTabs() {
 function renderNominalCombinedTable() {
   const includeDate = shouldIncludeDateColumn();
   const nominalColumns = getNominalReportColumns(includeDate);
+  const substationDeviceTables = (Array.isArray(state.latestDeviceTables) ? state.latestDeviceTables : [])
+    .filter((deviceTable) => !isDeviceAssignedToMainIntake(deviceTable?.deviceId));
   const nominalTable = buildNominalRowsTable(
-    state.latestDeviceTables,
+    substationDeviceTables,
     state.latestDatasetColumns,
     includeDate
   );
@@ -3598,16 +3855,19 @@ function renderMainIntakeReportTable(rows = null) {
 
   const safeRows =
     rows === null ? buildMainIntakeReportRows(state.projectName) : Array.isArray(rows) ? rows : [];
+  state.latestMainIntakeRows = safeRows;
+  state.latestMainIntakeColumns = [...MAIN_INTAKE_REPORT_COLUMNS];
   mainIntakeReportTableHead.innerHTML = "";
   mainIntakeReportTableBody.innerHTML = "";
 
-  if (!safeRows.length || !state.latestReportRows.length) {
+  if (state.selectedType === "hist-events" || !safeRows.length) {
     mainIntakeReportSection.classList.add("hidden");
     return;
   }
 
   mainIntakeReportSection.classList.remove("hidden");
   const columns = MAIN_INTAKE_REPORT_COLUMNS;
+  const standardRow = getTableStandardRow(columns);
   const mergedCellSpanMap = {
     "Main Intake": {},
   };
@@ -3636,6 +3896,17 @@ function renderMainIntakeReportTable(rows = null) {
   });
   mainIntakeReportTableHead.appendChild(headerRow);
 
+  if (standardRow) {
+    const standardTr = document.createElement("tr");
+    standardTr.classList.add("standard-row");
+    columns.forEach((column) => {
+      const td = document.createElement("td");
+      td.textContent = standardRow?.[column] ?? "";
+      standardTr.appendChild(td);
+    });
+    mainIntakeReportTableBody.appendChild(standardTr);
+  }
+
   safeRows.forEach((row, rowIndex) => {
     const tr = document.createElement("tr");
     columns.forEach((column) => {
@@ -3651,6 +3922,52 @@ function renderMainIntakeReportTable(rows = null) {
       tr.appendChild(td);
     });
     mainIntakeReportTableBody.appendChild(tr);
+  });
+}
+
+function renderPowerQualityReportTable(rows = null) {
+  if (!powerQualityReportSection || !powerQualityReportTableHead || !powerQualityReportTableBody) {
+    return;
+  }
+
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const columns = getPowerQualityReportColumns(shouldIncludeDateColumn());
+  const mergedCellSpanMap = buildMergedCellSpanMapByColumn(safeRows, "Category");
+  state.latestPowerQualityRows = safeRows;
+  state.latestPowerQualityColumns = columns;
+  powerQualityReportTableHead.innerHTML = "";
+  powerQualityReportTableBody.innerHTML = "";
+
+  if (state.selectedType === "hist-events" || !safeRows.length) {
+    powerQualityReportSection.classList.add("hidden");
+    return;
+  }
+
+  powerQualityReportSection.classList.remove("hidden");
+
+  const headerRow = document.createElement("tr");
+  columns.forEach((column) => {
+    const th = document.createElement("th");
+    th.textContent = column;
+    headerRow.appendChild(th);
+  });
+  powerQualityReportTableHead.appendChild(headerRow);
+
+  safeRows.forEach((row, rowIndex) => {
+    const tr = document.createElement("tr");
+    columns.forEach((column) => {
+      const rowSpan = mergedCellSpanMap?.[column]?.[rowIndex];
+      if (rowSpan === 0) {
+        return;
+      }
+      const td = document.createElement("td");
+      td.textContent = row?.[column] ?? "";
+      if (Number.isFinite(rowSpan) && rowSpan > 1) {
+        td.rowSpan = rowSpan;
+      }
+      tr.appendChild(td);
+    });
+    powerQualityReportTableBody.appendChild(tr);
   });
 }
 
@@ -4195,6 +4512,27 @@ function formatMeasuredValue(rawValue, numericValue, unit = "", significantDigit
   return text || "N/A";
 }
 
+function formatPowerQualityNumber(value, decimalPlaces = 2) {
+  const numericValue = parseNumericValue(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue.toFixed(decimalPlaces);
+  }
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  return text;
+}
+
+function formatPowerQualityPercent(value) {
+  const numericValue = parseNumericValue(value);
+  if (Number.isFinite(numericValue)) {
+    return `${numericValue.toFixed(2)}%`;
+  }
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  if (!text) {
+    return "";
+  }
+  return /%$/.test(text) ? text : `${text}%`;
+}
+
 function getDateKey(value) {
   const text = value === null || value === undefined ? "" : String(value).trim();
   const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -4455,6 +4793,65 @@ function getToleranceRangeForVoltageClass(voltageClass, options = {}) {
   return `${formatToleranceValue(tolerance.min, unit)}-${formatToleranceValue(tolerance.max, unit)}`;
 }
 
+function getTableStandardRow(columns) {
+  const safeColumns = Array.isArray(columns) ? columns : [];
+  if (!safeColumns.length) {
+    return null;
+  }
+
+  if (NOMINAL_STATUS_COLUMNS.some((column) => safeColumns.includes(column))) {
+    return buildNominalStandardRow(safeColumns);
+  }
+
+  if (safeColumns.includes("Main Intake") && safeColumns.includes("LV Voltage")) {
+    return buildMainIntakeStandardRow(safeColumns);
+  }
+
+  return null;
+}
+
+function buildNominalStandardRow(columns) {
+  const row = {};
+  columns.forEach((column) => {
+    if (column === "Device") {
+      row[column] = "Standard";
+      return;
+    }
+    if (column === "Substation" || column === "Date") {
+      row[column] = "";
+      return;
+    }
+    row[column] = getNominalHeaderToleranceLabel(column);
+  });
+  row._isStandardRow = true;
+  return row;
+}
+
+function buildMainIntakeStandardRow(columns) {
+  const standards = {
+    "Main Intake": "",
+    Device: "Standard",
+    "LV Voltage": "By class",
+    "HV Voltage": "By class",
+    Load: getToleranceRangeByMetricKey("LOAD_PERCENT", { includeUnits: true }),
+    "Power Factor": getToleranceRangeByMetricKey("POWER_FACTOR", { includeUnits: true }),
+    "Voltage Unbalance": getToleranceRangeByMetricKey("V_UNBALANCE", { includeUnits: true }),
+    "Current Unbalance": getToleranceRangeByMetricKey("A_UNBALANCE", { includeUnits: true }),
+    "TX Voltage Ratio": getToleranceRangeByMetricKey("TRANSFORMATION_RATIO", { includeUnits: true }),
+    "TX Oil Level": "-",
+    "TX Temperature": getToleranceRangeByMetricKey("TOP_OIL_TEMPERATURE", { includeUnits: true }),
+    "TX Pressure": "-",
+    "Power Quality (Event)": "No PQ Event",
+  };
+
+  const row = {};
+  columns.forEach((column) => {
+    row[column] = standards[column] ?? "";
+  });
+  row._isStandardRow = true;
+  return row;
+}
+
 function getToleranceRangeByMetricKey(metricKey, options = {}) {
   const activeDeviceRange = getActiveDeviceToleranceRange(metricKey, options);
   if (activeDeviceRange) {
@@ -4620,6 +5017,38 @@ function buildMergedCellSpanMap(rows, columns) {
   return spanMap;
 }
 
+function buildMergedCellSpanMapByColumn(rows, columnName) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const safeColumnName = String(columnName || "").trim();
+  if (!safeRows.length || !safeColumnName) {
+    return {};
+  }
+
+  const spanMap = {
+    [safeColumnName]: {},
+  };
+  let rowIndex = 0;
+
+  while (rowIndex < safeRows.length) {
+    const currentValue = String(safeRows[rowIndex]?.[safeColumnName] ?? "");
+    let span = 1;
+    while (
+      rowIndex + span < safeRows.length &&
+      String(safeRows[rowIndex + span]?.[safeColumnName] ?? "") === currentValue
+    ) {
+      span += 1;
+    }
+
+    spanMap[safeColumnName][rowIndex] = span;
+    for (let offset = 1; offset < span; offset += 1) {
+      spanMap[safeColumnName][rowIndex + offset] = 0;
+    }
+    rowIndex += span;
+  }
+
+  return spanMap;
+}
+
 function renderTable(
   rows,
   columnsOverride = null,
@@ -4681,35 +5110,6 @@ function renderTable(
 
     reportTableHead.appendChild(topHeaderRow);
     reportTableHead.appendChild(childHeaderRow);
-  } else if (shouldRenderNominalToleranceHeader(columns, hasGroupedHeader)) {
-    const unitHeaderRow = document.createElement("tr");
-    const toleranceHeaderRow = document.createElement("tr");
-
-    columns.forEach((column, columnIndex) => {
-      const unitTh = document.createElement("th");
-      unitTh.textContent = getNominalHeaderUnitLabel(column);
-      if (groupStartIndexes.has(columnIndex)) {
-        unitTh.classList.add("group-start");
-      }
-      if (groupEndIndexes.has(columnIndex)) {
-        unitTh.classList.add("group-end");
-      }
-      unitHeaderRow.appendChild(unitTh);
-
-      const toleranceTh = document.createElement("th");
-      toleranceTh.textContent = getNominalHeaderToleranceLabel(column);
-      toleranceTh.classList.add("tolerance-header");
-      if (groupStartIndexes.has(columnIndex)) {
-        toleranceTh.classList.add("group-start");
-      }
-      if (groupEndIndexes.has(columnIndex)) {
-        toleranceTh.classList.add("group-end");
-      }
-      toleranceHeaderRow.appendChild(toleranceTh);
-    });
-
-    reportTableHead.appendChild(unitHeaderRow);
-    reportTableHead.appendChild(toleranceHeaderRow);
   } else {
     const headerRow = document.createElement("tr");
     columns.forEach((column, columnIndex) => {
@@ -4724,6 +5124,24 @@ function renderTable(
       headerRow.appendChild(th);
     });
     reportTableHead.appendChild(headerRow);
+  }
+
+  const standardRow = !hasGroupedHeader ? getTableStandardRow(columns) : null;
+  if (standardRow) {
+    const standardTr = document.createElement("tr");
+    standardTr.classList.add("standard-row");
+    columns.forEach((column, columnIndex) => {
+      const td = document.createElement("td");
+      td.textContent = standardRow?.[column] ?? "";
+      if (groupStartIndexes.has(columnIndex)) {
+        td.classList.add("group-start");
+      }
+      if (groupEndIndexes.has(columnIndex)) {
+        td.classList.add("group-end");
+      }
+      standardTr.appendChild(td);
+    });
+    reportTableBody.appendChild(standardTr);
   }
 
   rows.forEach((row, rowIndex) => {
@@ -4763,7 +5181,10 @@ function renderTable(
 }
 
 function updateExportAvailability() {
-  exportReportButton.disabled = !state.latestReportRows.length;
+  const hasPrimaryRows = Array.isArray(state.latestReportRows) && state.latestReportRows.length > 0;
+  const hasMainIntakeRows = Array.isArray(state.latestMainIntakeRows) && state.latestMainIntakeRows.length > 0;
+  const hasPowerQualityRows = Array.isArray(state.latestPowerQualityRows) && state.latestPowerQualityRows.length > 0;
+  exportReportButton.disabled = !(hasPrimaryRows || hasMainIntakeRows || hasPowerQualityRows);
 }
 
 async function onExportReport() {
@@ -4814,11 +5235,10 @@ function exportCsv() {
 }
 
 async function exportExcel() {
-  const datasets = buildRenderedTableDatasets();
-  if (!datasets.length) {
+  const exportDatasets = buildAllExportDatasets();
+  if (!exportDatasets.length) {
     throw new Error("No device data available for Excel export.");
   }
-  const exportDatasets = buildDatasetsWithNonCompliantAppendix(datasets[0]);
 
   if (window.ExcelJS && window.ExcelJS.Workbook) {
     await exportExcelWithStyles(exportDatasets);
@@ -4832,27 +5252,15 @@ async function exportExcel() {
   const workbook = window.XLSX.utils.book_new();
   exportDatasets.forEach((dataset, index) => {
     const columns = Array.isArray(dataset.columns) ? dataset.columns : [];
-    const useTwoRowHeader = shouldUseTwoRowToleranceHeader(columns);
-    const headerContent = buildTwoRowHeaderContent(columns);
+    const standardRow = getTableStandardRow(columns);
     const bodyRows = (Array.isArray(dataset.rows) ? dataset.rows : []).map((row) =>
       columns.map((column) => row?.[column] ?? "")
     );
-    const legendRows = getRequirementToleranceLegendRows().map((item) => [
-      item.metric,
-      item.requirement,
-      item.tolerance,
+    const worksheet = window.XLSX.utils.aoa_to_sheet([
+      columns,
+      ...(standardRow ? [columns.map((column) => standardRow?.[column] ?? "")] : []),
+      ...bodyRows,
     ]);
-    const worksheet = useTwoRowHeader
-      ? window.XLSX.utils.aoa_to_sheet([
-          headerContent.unitRow,
-          headerContent.toleranceRow,
-          ...bodyRows,
-          ...Array.from({ length: LEGEND_GAP_ROWS }, () => []),
-          ["Requirement/Tolerance Legend"],
-          ["Metric", "Requirement", "Tolerance"],
-          ...legendRows,
-        ])
-      : window.XLSX.utils.json_to_sheet(dataset.rows, { header: columns });
     const fallbackName = `Device ${index + 1}`;
     window.XLSX.utils.book_append_sheet(
       workbook,
@@ -4898,10 +5306,62 @@ function buildRenderedTableDatasets() {
     {
       deviceId: state.activeDeviceTab || "report",
       label: reportLabel,
+      sectionTitle: "",
+      hideSectionTitle: true,
+      exportRole: "primary-summary",
       columns,
       rows: exportRows,
     },
   ];
+}
+
+function buildAllExportDatasets() {
+  const primaryDatasets = buildRenderedTableDatasets();
+  const supplementalDatasets = buildSupplementalExportDatasets();
+  const datasets = [];
+
+  if (primaryDatasets.length) {
+    datasets.push(...buildDatasetsWithNonCompliantAppendix(primaryDatasets[0]));
+  }
+
+  datasets.push(...supplementalDatasets);
+  return datasets;
+}
+
+function buildSupplementalExportDatasets() {
+  if (state.selectedType === "hist-events") {
+    return [];
+  }
+
+  const datasets = [];
+  if (Array.isArray(state.latestMainIntakeRows) && state.latestMainIntakeRows.length) {
+    datasets.push({
+      deviceId: "main-intake-report",
+      label: `${state.projectName || "Report"} - Main Intake Mapping`,
+      sectionTitle: "",
+      hideSectionTitle: true,
+      exportRole: "supplemental",
+      columns: Array.isArray(state.latestMainIntakeColumns) && state.latestMainIntakeColumns.length
+        ? [...state.latestMainIntakeColumns]
+        : [...MAIN_INTAKE_REPORT_COLUMNS],
+      rows: state.latestMainIntakeRows.map((row) => ({ ...row })),
+    });
+  }
+
+  if (Array.isArray(state.latestPowerQualityRows) && state.latestPowerQualityRows.length) {
+    datasets.push({
+      deviceId: "power-quality-report",
+      label: `${state.projectName || "Report"} - Power Quality Report`,
+      sectionTitle: "Power Quality Report",
+      exportRole: "supplemental",
+      columns: Array.isArray(state.latestPowerQualityColumns) && state.latestPowerQualityColumns.length
+        ? [...state.latestPowerQualityColumns]
+        : getPowerQualityReportColumns(shouldIncludeDateColumn()),
+      rows: state.latestPowerQualityRows.map((row) => ({ ...row })),
+    });
+  }
+
+  return datasets;
 }
 
 function buildDatasetsWithNonCompliantAppendix(primaryDataset) {
@@ -4938,6 +5398,8 @@ function buildNonCompliantOnlyDataset(primaryDataset) {
   return {
     deviceId: `${primaryDataset.deviceId || "report"}-non-compliant`,
     label: `${primaryDataset.label || "Report"} - Non-Compliant`,
+    sectionTitle: "Non-Compliant Readings",
+    exportRole: "appendix-non-compliant",
     columns: [...columns],
     rows: nonCompliantRows,
   };
@@ -4972,11 +5434,7 @@ function buildEmptyMessageRow(columns, message) {
 }
 
 function buildExcelDatasetsFromRenderedTable() {
-  const datasets = buildRenderedTableDatasets();
-  if (!datasets.length) {
-    return [];
-  }
-  return buildDatasetsWithNonCompliantAppendix(datasets[0]);
+  return buildAllExportDatasets();
 }
 
 async function exportExcelWithStyles(datasets) {
@@ -4988,23 +5446,22 @@ async function exportExcelWithStyles(datasets) {
     );
 
     const columns = Array.isArray(dataset.columns) ? dataset.columns : [];
-    const useTwoRowHeader = shouldUseTwoRowToleranceHeader(columns);
+    const standardRow = getTableStandardRow(columns);
     worksheet.columns = columns.map((column) => ({
       key: column,
       width: Math.max(14, Math.min(60, String(column).length + 6)),
     }));
 
     let headerRowCount = 1;
-    if (useTwoRowHeader) {
-      const headerContent = buildTwoRowHeaderContent(columns);
-      const unitHeaderRow = worksheet.addRow(headerContent.unitRow);
-      const toleranceHeaderRow = worksheet.addRow(headerContent.toleranceRow);
-      styleExcelHeaderRow(unitHeaderRow, false);
-      styleExcelHeaderRow(toleranceHeaderRow, true);
+    const headerRow = worksheet.addRow(columns);
+    styleExcelHeaderRow(headerRow, false);
+
+    if (standardRow) {
+      const standardExcelRow = worksheet.addRow(
+        columns.map((column) => standardRow?.[column] ?? "")
+      );
+      styleExcelStandardRow(standardExcelRow);
       headerRowCount = 2;
-    } else {
-      const headerRow = worksheet.addRow(columns);
-      styleExcelHeaderRow(headerRow, false);
     }
 
     dataset.rows.forEach((row) => {
@@ -5019,11 +5476,7 @@ async function exportExcelWithStyles(datasets) {
       });
     });
 
-    mergeExcelSubstationCells(worksheet, columns, headerRowCount, dataset.rows);
-
-    if (useTwoRowHeader) {
-      appendExcelRequirementLegend(worksheet);
-    }
+    mergeExcelGroupingCells(worksheet, columns, headerRowCount, dataset.rows);
 
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber <= headerRowCount) {
@@ -5047,21 +5500,36 @@ async function exportExcelWithStyles(datasets) {
   );
 }
 
-function mergeExcelSubstationCells(worksheet, columns, headerRowCount, rows) {
+function getGroupedExportColumnName(columns) {
+  const safeColumns = Array.isArray(columns) ? columns : [];
+  if (safeColumns.includes("Main Intake")) {
+    return "Main Intake";
+  }
+  if (safeColumns.includes("Category")) {
+    return "Category";
+  }
+  if (safeColumns.includes("Substation")) {
+    return "Substation";
+  }
+  return "";
+}
+
+function mergeExcelGroupingCells(worksheet, columns, headerRowCount, rows) {
   const safeColumns = Array.isArray(columns) ? columns : [];
   const safeRows = Array.isArray(rows) ? rows : [];
-  const substationColumnIndex = safeColumns.indexOf("Substation");
-  if (substationColumnIndex < 0 || !safeRows.length) {
+  const groupingColumnName = getGroupedExportColumnName(safeColumns);
+  const groupingColumnIndex = safeColumns.indexOf(groupingColumnName);
+  if (groupingColumnIndex < 0 || !safeRows.length) {
     return;
   }
 
   let startIndex = 0;
   while (startIndex < safeRows.length) {
-    const currentValue = String(safeRows[startIndex]?.Substation ?? "");
+    const currentValue = String(safeRows[startIndex]?.[groupingColumnName] ?? "");
     let span = 1;
     while (
       startIndex + span < safeRows.length &&
-      String(safeRows[startIndex + span]?.Substation ?? "") === currentValue
+      String(safeRows[startIndex + span]?.[groupingColumnName] ?? "") === currentValue
     ) {
       span += 1;
     }
@@ -5069,7 +5537,7 @@ function mergeExcelSubstationCells(worksheet, columns, headerRowCount, rows) {
     if (span > 1) {
       const firstRowNumber = headerRowCount + startIndex + 1;
       const lastRowNumber = firstRowNumber + span - 1;
-      const excelColumnNumber = substationColumnIndex + 1;
+      const excelColumnNumber = groupingColumnIndex + 1;
       worksheet.mergeCells(firstRowNumber, excelColumnNumber, lastRowNumber, excelColumnNumber);
       worksheet.getCell(firstRowNumber, excelColumnNumber).alignment = {
         vertical: "middle",
@@ -5102,35 +5570,24 @@ function styleExcelHeaderRow(row, isToleranceRow = false) {
   });
 }
 
-function appendExcelRequirementLegend(worksheet) {
-  for (let index = 0; index < LEGEND_GAP_ROWS; index += 1) {
-    worksheet.addRow([]);
-  }
-
-  const titleRow = worksheet.addRow([]);
-  titleRow.getCell(1).value = "Requirement/Tolerance Legend";
-  titleRow.getCell(1).font = { bold: true, color: { argb: "FF1F2937" } };
-
-  const headerRow = worksheet.addRow([]);
-  headerRow.getCell(1).value = "Metric";
-  headerRow.getCell(2).value = "Requirement";
-  headerRow.getCell(3).value = "Tolerance";
-  styleExcelHeaderRow(headerRow, false);
-
-  getRequirementToleranceLegendRows().forEach((item) => {
-    const row = worksheet.addRow([]);
-    row.getCell(1).value = item.metric;
-    row.getCell(2).value = item.requirement;
-    row.getCell(3).value = item.tolerance;
-    for (let cellIndex = 1; cellIndex <= 3; cellIndex += 1) {
-      const cell = row.getCell(cellIndex);
-      cell.border = {
-        top: { style: "thin", color: { argb: "FFE3E8F1" } },
-        left: { style: "thin", color: { argb: "FFE3E8F1" } },
-        bottom: { style: "thin", color: { argb: "FFE3E8F1" } },
-        right: { style: "thin", color: { argb: "FFE3E8F1" } },
-      };
-    }
+function styleExcelStandardRow(row) {
+  row.font = {
+    bold: true,
+    color: { argb: "FF5B6472" },
+  };
+  row.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF3F6FB" },
+    };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FFD2D8E3" } },
+      left: { style: "thin", color: { argb: "FFD2D8E3" } },
+      bottom: { style: "thin", color: { argb: "FFD2D8E3" } },
+      right: { style: "thin", color: { argb: "FFD2D8E3" } },
+    };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
   });
 }
 
@@ -5345,129 +5802,178 @@ function exportPdf() {
     throw new Error("PDF library not loaded.");
   }
 
-  const datasets = buildRenderedTableDatasets();
-  if (!datasets.length) {
+  const exportDatasets = buildAllExportDatasets();
+  if (!exportDatasets.length) {
     throw new Error("No device data available for PDF export.");
   }
-  const exportDatasets = buildDatasetsWithNonCompliantAppendix(datasets[0]);
 
   if (typeof window.jspdf.jsPDF.API?.autoTable !== "function") {
     throw new Error("PDF table plugin not loaded.");
   }
 
   const doc = new window.jspdf.jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-  exportDatasets.forEach((dataset, index) => {
-    if (index > 0) {
-      doc.addPage("a4", "portrait");
-    }
-    const columns = dataset.columns || [];
-    const rows = dataset.rows || [];
-    const useTwoRowHeader = shouldUseTwoRowToleranceHeader(columns);
-    const headerContent = buildTwoRowHeaderContent(columns);
-    const headerRows = useTwoRowHeader
-      ? [headerContent.unitRow, headerContent.toleranceRow]
-      : [columns];
+  const appendixDatasets = exportDatasets.filter(
+    (dataset) => String(dataset?.exportRole || "") === "appendix-non-compliant"
+  );
+  const mainDatasets = exportDatasets.filter(
+    (dataset) => String(dataset?.exportRole || "") !== "appendix-non-compliant"
+  );
 
-    doc.setFontSize(10);
-    doc.text(`Report (${state.selectedType}, ${state.selectedTimeRange})`, 18, 18);
-    doc.setFontSize(8);
-    doc.text(`View: ${dataset.label || dataset.deviceId || "Report"}`, 18, 30);
-
-    doc.autoTable({
-      head: headerRows,
-      body: rows.map((row) =>
-        columns.map((column) => (row[column] === null || row[column] === undefined ? "" : String(row[column])))
-      ),
-      startY: 36,
-      margin: { top: 18, right: 18, bottom: 14, left: 18 },
-      tableWidth: "auto",
-      styles: {
-        fontSize: 6,
-        cellPadding: { top: 1, right: 1.6, bottom: 1, left: 1.6 },
-        lineColor: [226, 232, 240],
-        lineWidth: 0.25,
-        overflow: "linebreak",
-        cellWidth: "auto",
-        minCellHeight: 9.8,
-      },
-      headStyles: {
-        fillColor: [15, 118, 110],
-        textColor: [255, 255, 255],
-        fontSize: 6.2,
-        cellPadding: { top: 1.2, right: 1.6, bottom: 1.2, left: 1.6 },
-      },
-      columnStyles: getPdfColumnStyles(columns),
-      didParseCell: (hookData) => {
-        if (hookData.section === "head" && useTwoRowHeader && hookData.row.index === 1) {
-          hookData.cell.styles.fillColor = [243, 246, 251];
-          hookData.cell.styles.textColor = [91, 100, 114];
-          hookData.cell.styles.fontStyle = "bold";
-          return;
-        }
-
-        if (hookData.section !== "body") {
-          return;
-        }
-
-        const rowData = rows[hookData.row.index] || {};
-        const columnName = columns[hookData.column.index];
-        const cssClassName = rowData?._cellClasses?.[columnName];
-        const resolvedStyle = getConditionalCellStyle(cssClassName);
-        if (!resolvedStyle) {
-          return;
-        }
-
-        hookData.cell.styles.fillColor = resolvedStyle.pdfFill;
-        hookData.cell.styles.textColor = resolvedStyle.pdfText;
-        if (resolvedStyle.bold) {
-          hookData.cell.styles.fontStyle = "bold";
-        }
-      },
+  let currentY = renderPdfDocumentHeader(doc, "");
+  mainDatasets.forEach((dataset, index) => {
+    const sectionResult = renderPdfDatasetSection(doc, dataset, currentY, {
+      renderLegend: String(dataset?.exportRole || "") === "primary-summary",
+      forcePageBreak: false,
+      isFirstSection: index === 0,
     });
+    currentY = sectionResult.nextY;
+  });
 
-    if (useTwoRowHeader) {
-      const pageHeight = doc.internal.pageSize.getHeight();
-      let legendStartY = (doc.lastAutoTable?.finalY || 36) + LEGEND_GAP_ROWS * 10;
-      if (legendStartY > pageHeight - 120) {
-        doc.addPage("a4", "portrait");
-        legendStartY = 36;
-      }
-
-      const legendRows = getRequirementToleranceLegendRows().map((item) => [
-        item.metric,
-        item.requirement,
-        item.tolerance,
-      ]);
-      doc.setFontSize(8);
-      doc.text("Requirement/Tolerance Legend", 18, legendStartY - 6);
-      doc.autoTable({
-        head: [["Metric", "Requirement", "Tolerance"]],
-        body: legendRows,
-        startY: legendStartY,
-        margin: { top: 18, right: 18, bottom: 14, left: 18 },
-        tableWidth: "auto",
-        styles: {
-          fontSize: 6.2,
-          cellPadding: { top: 1.2, right: 1.6, bottom: 1.2, left: 1.6 },
-          lineColor: [226, 232, 240],
-          lineWidth: 0.25,
-          overflow: "linebreak",
-        },
-        headStyles: {
-          fillColor: [15, 118, 110],
-          textColor: [255, 255, 255],
-          fontSize: 6.4,
-        },
-        columnStyles: {
-          0: { cellWidth: 70 },
-          1: { cellWidth: 300 },
-          2: { cellWidth: 90 },
-        },
-      });
-    }
+  appendixDatasets.forEach((dataset, index) => {
+    doc.addPage("a4", "portrait");
+    const headerNote = index === 0 ? "Non-Compliant Appendix" : "";
+    const sectionStartY = renderPdfDocumentHeader(doc, headerNote);
+    const sectionResult = renderPdfDatasetSection(doc, dataset, sectionStartY, {
+      renderLegend: false,
+      forcePageBreak: false,
+      isFirstSection: true,
+    });
+    currentY = sectionResult.nextY;
   });
 
   doc.save(`${getExportFileBaseName()}.pdf`);
+}
+
+function renderPdfDocumentHeader(doc, noteText = "") {
+  doc.setFontSize(10);
+  doc.text("Electrical System Daily Power Quality and Performance Report", 18, 18);
+  doc.setFontSize(8);
+  doc.text(`Project: ${state.projectName || "Report"} | Range: ${state.selectedTimeRange}`, 18, 30);
+  if (String(noteText || "").trim()) {
+    doc.text(String(noteText).trim(), 18, 41);
+    return 53;
+  }
+  return 42;
+}
+
+function ensurePdfPageSpace(doc, startY, requiredHeight = 60) {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (startY <= pageHeight - requiredHeight) {
+    return startY;
+  }
+  doc.addPage("a4", "portrait");
+  return renderPdfDocumentHeader(doc, "");
+}
+
+function renderPdfDatasetSection(doc, dataset, startY, options = {}) {
+  const safeDataset = dataset || {};
+  const columns = Array.isArray(safeDataset.columns) ? safeDataset.columns : [];
+  const rows = buildPdfDatasetRowsWithStandardRow(safeDataset);
+  const sectionTitle = getPdfDatasetSectionTitle(safeDataset);
+  const headerRows = [columns];
+  const safeOptions = options && typeof options === "object" ? options : {};
+
+  let currentY = startY;
+  if (!safeOptions.isFirstSection) {
+    currentY += 6;
+  }
+  currentY = ensurePdfPageSpace(doc, currentY, 70);
+
+  const showSectionTitle = !Boolean(safeDataset?.hideSectionTitle) && String(sectionTitle || "").trim();
+  if (showSectionTitle) {
+    doc.setFontSize(8.5);
+    doc.text(sectionTitle, 18, currentY);
+  }
+
+  doc.autoTable({
+    head: headerRows,
+    body: buildPdfDatasetBodyRows(columns, rows),
+    startY: currentY + (showSectionTitle ? 6 : 0),
+    margin: { top: 18, right: 18, bottom: 14, left: 18 },
+    tableWidth: "auto",
+    styles: {
+      fontSize: 6,
+      cellPadding: { top: 1, right: 1.6, bottom: 1, left: 1.6 },
+      lineColor: [226, 232, 240],
+      lineWidth: 0.25,
+      overflow: "linebreak",
+      cellWidth: "auto",
+      minCellHeight: 9.8,
+    },
+    headStyles: {
+      fillColor: [15, 118, 110],
+      textColor: [255, 255, 255],
+      fontSize: 6.2,
+      cellPadding: { top: 1.2, right: 1.6, bottom: 1.2, left: 1.6 },
+    },
+    columnStyles: getPdfColumnStyles(columns),
+    didParseCell: (hookData) => {
+      if (hookData.section !== "body") {
+        return;
+      }
+
+      const rowData = rows[hookData.row.index] || {};
+      if (rowData?._isStandardRow) {
+        hookData.cell.styles.fillColor = [243, 246, 251];
+        hookData.cell.styles.textColor = [91, 100, 114];
+        hookData.cell.styles.fontStyle = "bold";
+        return;
+      }
+
+      const columnName = columns[hookData.column.index];
+      const cssClassName = rowData?._cellClasses?.[columnName];
+      const resolvedStyle = getConditionalCellStyle(cssClassName);
+      if (!resolvedStyle) {
+        return;
+      }
+
+      hookData.cell.styles.fillColor = resolvedStyle.pdfFill;
+      hookData.cell.styles.textColor = resolvedStyle.pdfText;
+      if (resolvedStyle.bold) {
+        hookData.cell.styles.fontStyle = "bold";
+      }
+    },
+  });
+
+  currentY = (doc.lastAutoTable?.finalY || currentY + 6) + 12;
+  return {
+    nextY: currentY,
+  };
+}
+
+function getPdfDatasetSectionTitle(dataset) {
+  const explicitTitle = String(dataset?.sectionTitle || "").trim();
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+  return String(dataset?.label || dataset?.deviceId || "Report").trim() || "Report";
+}
+
+function buildPdfDatasetRowsWithStandardRow(dataset) {
+  const columns = Array.isArray(dataset?.columns) ? dataset.columns : [];
+  const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+  const standardRow = getTableStandardRow(columns);
+  return standardRow ? [standardRow, ...rows] : rows;
+}
+
+function buildPdfDatasetBodyRows(columns, rows) {
+  const groupedColumnName = getGroupedExportColumnName(columns);
+  let previousGroupedValue = null;
+
+  return rows.map((row) =>
+    columns.map((column) => {
+      const rawValue = row?.[column];
+      const textValue = rawValue === null || rawValue === undefined ? "" : String(rawValue);
+      if (!groupedColumnName || column !== groupedColumnName) {
+        return textValue;
+      }
+      if (textValue && textValue === previousGroupedValue) {
+        return "";
+      }
+      previousGroupedValue = textValue;
+      return textValue;
+    })
+  );
 }
 
 function getPdfColumnStyles(columns) {
@@ -5489,6 +5995,28 @@ function getPdfColumnStyles(columns) {
       Date: 60,
       Time: 54,
       Event: "auto",
+    };
+    safeColumns.forEach((column, index) => {
+      styles[index] = {
+        cellWidth: widthByColumn[column] || "auto",
+        overflow: "linebreak",
+      };
+    });
+    return styles;
+  }
+
+  if (safeColumns.includes("Event Type")) {
+    const widthByColumn = {
+      Category: 58,
+      Device: 76,
+      Date: 56,
+      "Start Time": 54,
+      "Duration (ms)": 48,
+      "Min. Voltage": 54,
+      "Max. Voltage": 54,
+      "Event Type": 78,
+      Phase: 42,
+      "Voltage Sag": 50,
     };
     safeColumns.forEach((column, index) => {
       styles[index] = {

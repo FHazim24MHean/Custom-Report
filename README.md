@@ -45,7 +45,8 @@ Then open:
 
 Postgres is optional for local use. If no Postgres environment variables are set, Substation/Main Intake metadata is saved to:
 
-- `db/app-metadata.json`
+- `%USERPROFILE%/.custom-report-generator/app-metadata.json` on Windows
+- `$HOME/.custom-report-generator/app-metadata.json` on Linux/macOS
 
 Note: PDF/Excel export uses CDN libraries; internet access is required unless you host those libs locally.
 
@@ -54,7 +55,14 @@ Note: PDF/Excel export uses CDN libraries; internet access is required unless yo
 Substation definitions, main intakes, labels, and device mappings are stored by the app persistence API.
 By default, when Postgres is not configured, the server uses the local JSON file:
 
-- `db/app-metadata.json`
+- `%USERPROFILE%/.custom-report-generator/app-metadata.json` on Windows
+- `$HOME/.custom-report-generator/app-metadata.json` on Linux/macOS
+
+You can override the default local JSON path with:
+
+- `APP_METADATA_PATH`
+
+Static access to `/db/*` is blocked by the server, and the default JSON store is no longer kept under the web root.
 
 To use Postgres instead, configure these environment variables before starting the server:
 

@@ -1,5 +1,6 @@
 const http = require("http");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { Readable } = require("stream");
 
@@ -7,7 +8,7 @@ const PORT = Number(process.env.PORT || 5500);
 const API_ORIGIN = process.env.API_ORIGIN || "http://gridvisdemo.site:8080";
 const STATIC_ROOT = process.cwd();
 const APP_API_PREFIX = "/app-api";
-const LOCAL_METADATA_PATH = path.join(STATIC_ROOT, "db", "app-metadata.json");
+const LOCAL_METADATA_PATH = resolveLocalMetadataPath();
 
 const CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -49,9 +50,24 @@ function safeJoin(root, requestedPath) {
   return resolved;
 }
 
+function resolveLocalMetadataPath() {
+  const configuredPath = String(process.env.APP_METADATA_PATH || "").trim();
+  if (configuredPath) {
+    return path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.resolve(STATIC_ROOT, configuredPath);
+  }
+  return path.join(os.homedir(), ".custom-report-generator", "app-metadata.json");
+}
+
 function serveStatic(req, res) {
   let pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
   if (pathname === "/") pathname = "/index.html";
+
+  if (pathname === "/db" || pathname.startsWith("/db/")) {
+    send(res, 403, "Forbidden");
+    return;
+  }
 
   const filePath = safeJoin(STATIC_ROOT, pathname);
   if (!filePath) {

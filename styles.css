@@ -567,6 +567,12 @@ h1 {
   background: #f3f6fb;
 }
 
+.report-table tr.standard-row td {
+  background: #f3f6fb;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .report-table th.group-parent {
   text-align: center;
   background: #eef3fb;
