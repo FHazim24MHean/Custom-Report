@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Report Generator</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="page">
+    <h1>Report Generator</h1>
+
+    <div class="page-switcher" aria-label="Page navigation">
+      <button id="showReportPageButton" class="page-switch-button active" type="button">Report</button>
+      <button id="showConfigPageButton" class="page-switch-button" type="button">Configuration</button>
+    </div>
+
+    <section id="reportPage" class="page-panel">
+    <section class="ribbon" aria-label="Generate report ribbon">
+      <div class="field-group project-group">
+        <label class="field-label" for="projectSelect">Project</label>
+        <div class="project-controls">
+          <select id="projectSelect" class="input-control">
+            <option value="">Select project</option>
+          </select>
+          <button id="refreshProjectsButton" class="secondary-button" type="button">
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Devices</label>
+        <div class="dropdown" id="deviceDropdown">
+          <button
+            id="deviceDropdownButton"
+            class="dropdown-button"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded="false">
+            Select device(s)
+          </button>
+          <div id="deviceDropdownMenu" class="dropdown-menu hidden">
+            <div id="deviceOptions" class="device-options" role="listbox" aria-multiselectable="true"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="typeSelect">Type</label>
+        <select id="typeSelect" class="input-control">
+          <option value="histvalues">Historical Values</option>
+          <option value="hist-events">Historical Events</option>
+        </select>
+      </div>
+
+      <div class="field-group range-field-group">
+        <label class="field-label" for="timeRangeSelect">Date Range</label>
+        <select id="timeRangeSelect" class="input-control">
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="last7">Last 7 Days</option>
+          <option value="last30">Last 30 Days</option>
+          <option value="last365">Last 365 Days</option>
+          <option value="lastyear">Last Year (1/1 to 1/1)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+
+      <div id="customDateRange" class="custom-date-range custom-date-row hidden">
+        <div class="date-control">
+          <label class="field-label" for="customStartDate">Start Date</label>
+          <input id="customStartDate" class="input-control" type="date">
+        </div>
+        <div class="date-control">
+          <label class="field-label" for="customEndDate">End Date</label>
+          <input id="customEndDate" class="input-control" type="date">
+        </div>
+      </div>
+
+      <div class="field-group action-group">
+        <button id="generateReportButton" class="generate-button" type="button">
+          Generate Report
+        </button>
+      </div>
+      <div class="field-group export-group">
+        <label class="field-label" for="exportFormatSelect">Export</label>
+        <div class="export-controls">
+          <select id="exportFormatSelect" class="input-control">
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="pdf">PDF</option>
+          </select>
+          <button id="exportReportButton" class="secondary-button" type="button" disabled>
+            Export
+          </button>
+        </div>
+      </div>
+
+
+    </section>
+
+    <section class="status-area">
+      <p id="statusMessage" class="status-message"></p>
+      <div id="selectedDevices" class="selected-devices"></div>
+    </section>
+
+    <section class="table-section">
+      <div id="deviceTabs" class="device-tabs " aria-label="Device tabs"></div>
+      <div id="dateTabs" class="device-tabs " aria-label="Date tabs"></div>
+      <div class="table-wrap">
+        <table id="reportTable" class="report-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <section id="mainIntakeReportSection" class="secondary-report-section hidden" aria-label="Main intake mapping report">
+        <h3>Main Intake Mapping</h3>
+        <div class="table-wrap">
+          <table id="mainIntakeReportTable" class="report-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    </section>
+
+    <section id="configPage" class="page-panel hidden" aria-label="Configuration page">
+      <div class="config-shell">
+        <div class="config-header-card">
+          <div>
+            <h2>Compliance Configuration</h2>
+            <p class="config-copy">Manage substations, device labels, and device assignments for the current project.</p>
+          </div>
+          <p id="configProjectSummary" class="config-project-summary">Select a project to configure device mappings.</p>
+        </div>
+
+        <section class="config-grid">
+          <section class="config-card">
+            <h3>Substation Management</h3>
+            <p class="config-copy">Create substations for the selected project, then map devices into them. Devices stay unassigned until you map them here.</p>
+
+            <div class="config-filter-bar substation-create-bar">
+              <div class="field-group">
+                <label class="field-label" for="substationNameInput">New Substation</label>
+                <input id="substationNameInput" class="input-control" type="text" placeholder="Enter substation name">
+              </div>
+              <div class="field-group action-group">
+                <button id="addSubstationButton" class="generate-button" type="button">Add Substation</button>
+              </div>
+            </div>
+
+            <div class="config-selection-bar">
+              <label class="field-group substation-assign-field" for="substationAssignmentSelect">
+                <span class="field-label">Assign Selected Devices</span>
+                <select id="substationAssignmentSelect" class="input-control">
+                  <option value="">Select substation</option>
+                </select>
+              </label>
+              <button id="assignSelectedSubstationButton" class="secondary-button" type="button">Assign to Selected</button>
+              <button id="clearSelectedSubstationButton" class="secondary-button" type="button">Clear Selected Mapping</button>
+              <span id="substationCount" class="config-device-count">0 substation(s)</span>
+            </div>
+
+            <div id="substationList" class="config-device-list" aria-label="Configured substation list"></div>
+
+            <h4 class="config-subsection-title">Main Intake Mapping</h4>
+            <p class="config-copy">Create main intake groups for the selected project, then map devices into them. This will appear as a separate table in the report.</p>
+
+            <div class="config-filter-bar substation-create-bar">
+              <div class="field-group">
+                <label class="field-label" for="mainIntakeNameInput">New Main Intake</label>
+                <input id="mainIntakeNameInput" class="input-control" type="text" placeholder="Enter main intake name">
+              </div>
+              <div class="field-group action-group">
+                <button id="addMainIntakeButton" class="generate-button" type="button">Add Main Intake</button>
+              </div>
+            </div>
+
+            <div class="config-selection-bar">
+              <label class="field-group substation-assign-field" for="mainIntakeAssignmentSelect">
+                <span class="field-label">Assign Selected Devices</span>
+                <select id="mainIntakeAssignmentSelect" class="input-control">
+                  <option value="">Select main intake</option>
+                </select>
+              </label>
+              <button id="assignSelectedMainIntakeButton" class="secondary-button" type="button">Assign to Selected</button>
+              <button id="clearSelectedMainIntakeButton" class="secondary-button" type="button">Clear Selected Mapping</button>
+              <span id="mainIntakeCount" class="config-device-count">0 main intake(s)</span>
+            </div>
+
+            <div id="mainIntakeList" class="config-device-list" aria-label="Configured main intake list"></div>
+          </section>
+
+          <div class="config-card">
+            <h3>Device Scope</h3>
+            <div class="config-filter-bar">
+              <div class="field-group">
+                <label class="field-label" for="configProjectSelect">Project</label>
+                <select id="configProjectSelect" class="input-control">
+                  <option value="">Select project</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="configDeviceSearch">Device Search</label>
+                <input id="configDeviceSearch" class="input-control" type="search" placeholder="Search devices">
+              </div>
+            </div>
+
+            <div class="config-selection-bar">
+              <button id="selectAllFilteredConfigButton" class="secondary-button" type="button">Select All Filtered</button>
+              <button id="clearFilteredConfigButton" class="secondary-button" type="button">Clear Filtered</button>
+              <span id="configDeviceCount" class="config-device-count">0 filtered device(s)</span>
+            </div>
+
+            <div id="configDeviceList" class="config-device-list" aria-label="Configurable device list"></div>
+          </div>
+        </section>
+
+        <section class="config-card">
+          <h3>Transformer Mapping</h3>
+          <p class="config-copy">Map the HT-side and LV-side devices for each step-down transformer so the report can calculate transformation ratio.</p>
+          <div class="config-filter-bar">
+            <div class="field-group">
+              <label class="field-label" for="transformerHtDeviceSelect">HT Device</label>
+              <select id="transformerHtDeviceSelect" class="input-control">
+                <option value="">Select HT device</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="transformerLvDeviceSelect">LV Device</label>
+              <select id="transformerLvDeviceSelect" class="input-control">
+                <option value="">Select LV device</option>
+              </select>
+            </div>
+          </div>
+          <div class="config-actions">
+            <button id="addTransformerMappingButton" class="generate-button" type="button">Save Mapping</button>
+          </div>
+          <div id="transformerMappingList" class="config-device-list" aria-label="Transformer mapping list"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

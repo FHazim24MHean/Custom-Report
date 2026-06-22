@@ -1,0 +1,85 @@
+{
+  "substations": [
+    {
+      "id": "1",
+      "project_name": "__demo_project__",
+      "name": "1A",
+      "created_at": "2026-05-05T03:25:10.009Z"
+    }
+  ],
+  "deviceSubstationMappings": [
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-01",
+      "substation_id": "1",
+      "created_at": "2026-05-05T03:25:22.914Z",
+      "updated_at": "2026-05-05T03:25:22.914Z"
+    },
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-02",
+      "substation_id": "1",
+      "created_at": "2026-05-05T03:25:22.915Z",
+      "updated_at": "2026-05-05T03:25:22.915Z"
+    },
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-03",
+      "substation_id": "1",
+      "created_at": "2026-05-05T03:25:22.915Z",
+      "updated_at": "2026-05-05T03:25:22.915Z"
+    },
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-04",
+      "substation_id": "1",
+      "created_at": "2026-05-05T03:25:22.915Z",
+      "updated_at": "2026-05-05T03:25:22.915Z"
+    }
+  ],
+  "mainIntakes": [
+    {
+      "id": "1",
+      "project_name": "__demo_project__",
+      "name": "MI 1",
+      "created_at": "2026-05-05T03:25:43.443Z"
+    },
+    {
+      "id": "2",
+      "project_name": "__demo_project__",
+      "name": "MI 2",
+      "created_at": "2026-05-05T03:25:53.097Z"
+    }
+  ],
+  "deviceMainIntakeMappings": [
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-34",
+      "main_intake_id": "1",
+      "created_at": "2026-05-05T03:26:06.029Z",
+      "updated_at": "2026-05-05T03:26:06.029Z"
+    },
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-35",
+      "main_intake_id": "1",
+      "created_at": "2026-05-05T03:26:06.029Z",
+      "updated_at": "2026-05-05T03:26:06.029Z"
+    },
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-41",
+      "main_intake_id": "2",
+      "created_at": "2026-05-05T03:26:46.363Z",
+      "updated_at": "2026-05-05T03:26:46.363Z"
+    },
+    {
+      "project_name": "__demo_project__",
+      "device_id": "DEMO-DEV-42",
+      "main_intake_id": "2",
+      "created_at": "2026-05-05T03:26:46.363Z",
+      "updated_at": "2026-05-05T03:26:46.363Z"
+    }
+  ],
+  "deviceLabels": []
+}
