@@ -43,6 +43,13 @@ Then open:
 
 `http://localhost:5500`
 
+If the upstream REST API requires authentication, set one of these before starting:
+
+- `API_AUTH_HEADER`
+- `API_BEARER_TOKEN`
+- `API_USERNAME` and `API_PASSWORD`
+- optional `API_COOKIE`
+
 Postgres is optional for local use. If no Postgres environment variables are set, Substation/Main Intake metadata is saved to:
 
 - `%USERPROFILE%/.custom-report-generator/app-metadata.json` on Windows
@@ -118,6 +125,17 @@ const API_CONFIG = {
 `/rest` is proxied by `server.js` to:
 
 `http://gridvisdemo.site:8080/rest`
+
+If the upstream API is protected, the proxy can inject auth using environment variables:
+
+- `API_AUTH_HEADER`
+  - full header value, for example `Bearer eyJ...` or `Basic abc...`
+- `API_BEARER_TOKEN`
+  - proxy sends `Authorization: Bearer <token>`
+- `API_USERNAME` and `API_PASSWORD`
+  - proxy sends HTTP Basic auth
+- `API_COOKIE`
+  - proxy forwards a fixed cookie header upstream
 
 The app builds paths as:
 

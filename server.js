@@ -60,6 +60,42 @@ function resolveLocalMetadataPath() {
   return path.join(os.homedir(), ".custom-report-generator", "app-metadata.json");
 }
 
+function getUpstreamAuthHeaders() {
+  const explicitAuthorization = String(process.env.API_AUTH_HEADER || "").trim();
+  if (explicitAuthorization) {
+    return {
+      Authorization: explicitAuthorization,
+    };
+  }
+
+  const bearerToken = String(process.env.API_BEARER_TOKEN || "").trim();
+  if (bearerToken) {
+    return {
+      Authorization: `Bearer ${bearerToken}`,
+    };
+  }
+
+  const username = String(process.env.API_USERNAME || "").trim();
+  const password = String(process.env.API_PASSWORD || "");
+  if (username) {
+    const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
+    return {
+      Authorization: `Basic ${encoded}`,
+    };
+  }
+
+  return {};
+}
+
+function getUpstreamExtraHeaders() {
+  const headers = {};
+  const cookieHeader = String(process.env.API_COOKIE || "").trim();
+  if (cookieHeader) {
+    headers.Cookie = cookieHeader;
+  }
+  return headers;
+}
+
 function serveStatic(req, res) {
   let pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
   if (pathname === "/") pathname = "/index.html";
@@ -95,6 +131,19 @@ async function proxyApi(req, res) {
   delete incomingHeaders.origin;
   delete incomingHeaders.referer;
 
+  const upstreamAuthHeaders = getUpstreamAuthHeaders();
+  const upstreamExtraHeaders = getUpstreamExtraHeaders();
+  const upstreamHeaders = {
+    ...incomingHeaders,
+    ...upstreamExtraHeaders,
+  };
+  if (!upstreamHeaders.authorization && upstreamAuthHeaders.Authorization) {
+    upstreamHeaders.authorization = upstreamAuthHeaders.Authorization;
+  }
+  if (!upstreamHeaders.cookie && upstreamExtraHeaders.Cookie) {
+    upstreamHeaders.cookie = upstreamExtraHeaders.Cookie;
+  }
+
   let body;
   if (req.method !== "GET" && req.method !== "HEAD") {
     body = req;
@@ -103,7 +152,7 @@ async function proxyApi(req, res) {
   try {
     const fetchOptions = {
       method: req.method,
-      headers: incomingHeaders,
+      headers: upstreamHeaders,
       body,
       redirect: "manual",
     };

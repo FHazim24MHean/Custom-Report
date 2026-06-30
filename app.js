@@ -65,51 +65,115 @@ const EXTRA_NOMINAL_METRIC_DEFINITIONS = [
   {
     key: "LOAD_PERCENT",
     queryValue: "LOAD_PERCENT",
-    column: "Load %",
+    column: "Load",
     unitColumn: "LoadPercentUnit",
     unitValue: "%",
     unitLabel: "Load (%)",
   },
   {
     key: "TRANSFORMATION_RATIO",
-    column: "Transformation Ratio",
+    column: "TX Voltage Ratio",
     unitValue: "",
-    unitLabel: "Transformation Ratio",
+    unitLabel: "TX Voltage Ratio",
   },
   {
     key: "V_UNBALANCE",
     queryValue: "V_UNBALANCE",
-    column: "V Unbalance",
+    column: "LV Voltage Unbalance",
     unitColumn: "VUnbalanceUnit",
     unitValue: "%",
-    unitLabel: "Voltage Unbalance (%)",
+    unitLabel: "LV Voltage Unbalance (%)",
   },
   {
     key: "A_UNBALANCE",
     queryValue: "A_UNBALANCE",
-    column: "A Unbalance",
+    column: "LV Current Unbalance",
     unitColumn: "AUnbalanceUnit",
     unitValue: "%",
-    unitLabel: "Current Unbalance (%)",
+    unitLabel: "LV Current Unbalance (%)",
   },
   {
     key: "POWER_FACTOR",
     queryValue: "POWER_FACTOR",
-    column: "Power Factor",
+    column: "LV Power Factor",
     unitColumn: "PowerFactorUnit",
     unitValue: "",
-    unitLabel: "Power Factor",
+    unitLabel: "LV Power Factor",
+  },
+  {
+    key: "POWER_ACTIVE_SUM",
+    queryValue: "PowerActive",
+    column: "POWER_ACTIVE_SUM",
+    unitColumn: "PowerActiveSumUnit",
+    unitValue: "W",
+    unitLabel: "POWER_ACTIVE_SUM",
+  },
+  {
+    key: "POWER_APPARENT_SUM",
+    queryValue: "PowerApparent",
+    column: "POWER_APPARENT_SUM",
+    unitColumn: "PowerApparentSumUnit",
+    unitValue: "VA",
+    unitLabel: "POWER_APPARENT_SUM",
+  },
+  {
+    key: "TEMPERATURE_EXTERNAL",
+    queryValue: "Temperature",
+    column: "TEMPERATURE_EXTERNAL",
+    unitColumn: "TemperatureExternalUnit",
+    unitValue: "degC",
+    unitLabel: "TEMPERATURE_EXTERNAL",
   },
 ];
 
+const HIDDEN_NOMINAL_METRIC_KEYS = [
+  "POWER_ACTIVE_SUM",
+  "POWER_ACTIVE_SUM_Min",
+  "POWER_ACTIVE_SUM_Max",
+  "POWER_APPARENT_SUM",
+  "POWER_APPARENT_SUM_Min",
+  "POWER_APPARENT_SUM_Max",
+  "TEMPERATURE_EXTERNAL",
+  "TEMPERATURE_EXTERNAL_Min",
+  "TEMPERATURE_EXTERNAL_Max",
+];
+
+const CAPABILITY_TYPE_PREFERENCES = {
+  POWER_FACTOR: ["SUM13", "SUM14", "SUM", "TOTAL", "L1", "L2", "L3"],
+  POWER_ACTIVE_SUM: ["SUM13", "SUM14", "SUM", "TOTAL"],
+  POWER_APPARENT_SUM: ["SUM13", "SUM14", "SUM", "TOTAL"],
+};
+
+const REPORT_METRIC_COLUMNS = [
+  "LV Voltage",
+  "HV Voltage",
+  "Load",
+  "LV MSB Temp (from PLC)",
+  "LV Power Factor",
+  "LV Voltage Unbalance",
+  "LV Current Unbalance",
+  "TX Voltage Ratio",
+  "TX Oil Pressure",
+  "TX Temperature",
+  "TX Pressure",
+];
+const NON_POWER_DATA_PLACEHOLDER = "N/A";
+const SUBSTATION_VOLTAGE_CONTEXT = {
+  lvClass: "400V",
+  hvClass: "11kV",
+};
+const MAIN_INTAKE_VOLTAGE_CONTEXT = {
+  lvClass: "11kV",
+  hvClass: "33kV",
+};
 const NOMINAL_STATUS_COLUMNS = [
-  "Top Oil Temperature",
-  "Winding Temperature",
-  "Load %",
-  "Transformation Ratio",
-  "V Unbalance",
-  "A Unbalance",
-  "Power Factor",
+  "LV Voltage",
+  "HV Voltage",
+  "Load",
+  "LV Power Factor",
+  "LV Voltage Unbalance",
+  "LV Current Unbalance",
+  "TX Voltage Ratio",
 ];
 
 const LEGEND_GAP_ROWS = 5;
@@ -125,17 +189,7 @@ const DEMO_DATA_CONFIG = {
 const MAIN_INTAKE_REPORT_COLUMNS = [
   "Main Intake",
   "Device",
-  "LV Voltage",
-  "HV Voltage",
-  "Load",
-  "Power Factor",
-  "Voltage Unbalance",
-  "Current Unbalance",
-  "TX Voltage Ratio",
-  "TX Oil Level",
-  "TX Temperature",
-  "TX Pressure",
-  "Power Quality (Event)",
+  ...REPORT_METRIC_COLUMNS,
 ];
 const POWER_QUALITY_REPORT_BASE_COLUMNS = [
   "Category",
@@ -176,6 +230,7 @@ const state = {
   activePage: "report",
   configDeviceSearch: "",
   configSelectedDeviceIds: new Set(),
+  deviceValueDescriptionsByProject: {},
   thresholdOverridesByDevice: loadThresholdOverrides(),
   substationMappingsByProject: loadSubstationMappings(),
   transformerMappings: loadTransformerMappings(),
@@ -896,23 +951,6 @@ function getDeterministicDummyNumber(seedText, min, max, decimals = 1) {
   return Number(value.toFixed(decimals));
 }
 
-function buildDummyMainIntakeMetrics(deviceId) {
-  const seed = String(deviceId || "");
-  return {
-    "LV Voltage": `${getDeterministicDummyNumber(`${seed}:lv`, 397, 420, 1)} V`,
-    "HV Voltage": `${getDeterministicDummyNumber(`${seed}:hv`, 10.8, 11.4, 2)} kV`,
-    Load: `${getDeterministicDummyNumber(`${seed}:load`, 42, 86, 1)} %`,
-    "Power Factor": getDeterministicDummyNumber(`${seed}:pf`, 0.91, 0.99, 2).toFixed(2),
-    "Voltage Unbalance": `${getDeterministicDummyNumber(`${seed}:vu`, 0.3, 1.8, 2)} %`,
-    "Current Unbalance": `${getDeterministicDummyNumber(`${seed}:cu`, 1.2, 4.7, 2)} %`,
-    "TX Voltage Ratio": getDeterministicDummyNumber(`${seed}:ratio`, 0.97, 1.03, 3).toFixed(3),
-    "TX Oil Level": `${getDeterministicDummyNumber(`${seed}:oil`, 72, 96, 1)} %`,
-    "TX Temperature": `${getDeterministicDummyNumber(`${seed}:temp`, 48, 78, 1)} degC`,
-    "TX Pressure": `${getDeterministicDummyNumber(`${seed}:pressure`, 1.1, 2.6, 2)} bar`,
-    "Power Quality (Event)": getDeterministicDummyNumber(`${seed}:events`, 0, 4, 0) > 2 ? "Review" : "Normal",
-  };
-}
-
 function buildMainIntakeReportRows(projectName) {
   const safeProjectName = String(projectName || "").trim();
   if (!safeProjectName) {
@@ -920,6 +958,37 @@ function buildMainIntakeReportRows(projectName) {
   }
 
   const assignments = getProjectMainIntakeAssignments(safeProjectName);
+  const groupedRowsByDevice = new Map(
+    (Array.isArray(state.latestDeviceTables) ? state.latestDeviceTables : []).map((deviceTable) => [
+      String(deviceTable?.deviceId || ""),
+      Array.isArray(deviceTable?.rows) ? deviceTable.rows : [],
+    ])
+  );
+  const latestMetricRowsByDevice = new Map(
+    (Array.isArray(state.latestDeviceTables) ? state.latestDeviceTables : []).map((deviceTable) => {
+      const safeRows = Array.isArray(deviceTable?.rows) ? deviceTable.rows : [];
+      const latestRow = safeRows.length ? safeRows[safeRows.length - 1] : null;
+      const transformationRatioMetrics = latestRow
+        ? buildTransformationRatioMetrics(
+            deviceTable.deviceId,
+            latestRow,
+            state.latestDatasetColumns,
+            groupedRowsByDevice
+          )
+        : {};
+      const derivedNominalMetrics = latestRow ? buildDerivedNominalMetrics(latestRow) : {};
+      return [
+        String(deviceTable?.deviceId || ""),
+        latestRow
+          ? {
+              ...latestRow,
+              ...derivedNominalMetrics,
+              ...transformationRatioMetrics,
+            }
+          : null,
+      ];
+    })
+  );
   const rows = [];
 
   Object.entries(assignments).forEach(([deviceId, assignment]) => {
@@ -927,10 +996,40 @@ function buildMainIntakeReportRows(projectName) {
     if (!mainIntakeName) {
       return;
     }
+
+    const latestMetrics = latestMetricRowsByDevice.get(String(deviceId)) || null;
+    if (!latestMetrics) {
+      return;
+    }
+
+    const voltageContext = resolveVoltageMetricContext(
+      deviceId,
+      (lookupDeviceId) => latestMetricRowsByDevice.get(String(lookupDeviceId || "").trim()) || null,
+      safeProjectName,
+      {
+        lvFallbackClasses: [MAIN_INTAKE_VOLTAGE_CONTEXT.lvClass],
+        hvFallbackClasses: [MAIN_INTAKE_VOLTAGE_CONTEXT.hvClass],
+        expectedVoltageClasses: {
+          lv: MAIN_INTAKE_VOLTAGE_CONTEXT.lvClass,
+          hv: MAIN_INTAKE_VOLTAGE_CONTEXT.hvClass,
+        },
+      }
+    );
+
     rows.push({
       "Main Intake": mainIntakeName,
       Device: getDeviceDisplayName(deviceId),
-      ...buildDummyMainIntakeMetrics(deviceId),
+      "LV Voltage": formatMainIntakeMetricNumber(voltageContext.lv?.value, 2),
+      "HV Voltage": formatMainIntakeMetricNumber(voltageContext.hv?.value, 2),
+      Load: formatMainIntakeMetricPercent(latestMetrics?.LOAD_PERCENT),
+      "LV MSB Temp (from PLC)": NON_POWER_DATA_PLACEHOLDER,
+      "LV Power Factor": formatMainIntakeMetricNumber(latestMetrics?.POWER_FACTOR, 2),
+      "LV Voltage Unbalance": formatMainIntakeMetricPercent(latestMetrics?.V_UNBALANCE),
+      "LV Current Unbalance": formatMainIntakeMetricPercent(latestMetrics?.A_UNBALANCE),
+      "TX Voltage Ratio": formatMainIntakeMetricNumber(latestMetrics?.TRANSFORMATION_RATIO, 3),
+      "TX Oil Pressure": NON_POWER_DATA_PLACEHOLDER,
+      "TX Temperature": NON_POWER_DATA_PLACEHOLDER,
+      "TX Pressure": NON_POWER_DATA_PLACEHOLDER,
     });
   });
 
@@ -2722,37 +2821,55 @@ async function fetchReportRows(projectName, deviceIds, filters) {
       );
     });
   } else {
+    const valueDescriptionsByDevice = await fetchDeviceValueDescriptionsForDevices(projectName, deviceIds);
     deviceIds.forEach((deviceId, deviceIndex) => {
-      API_CONFIG.nominalValueMetrics.forEach((metric) => {
-        API_CONFIG.nominalValuePhases.forEach((phase) => {
-          requests.push(
-            (async () => {
-              const requestUrl = buildHistoryUrl(projectName, deviceId, filters, { metric, phase });
-              state.latestApiUrls.push(requestUrl);
-              if (deviceIndex === 0 && metric === API_CONFIG.nominalValueMetrics[0] && phase === API_CONFIG.nominalValuePhases[0]) {
-                setStatus(`Calling API: ${requestUrl}`);
-              }
-              const xmlText = await getText(requestUrl, "application/xml");
-              return normalizeNominalValueXml(xmlText, deviceId, metric, phase);
-            })()
-          );
-        });
-      });
-      EXTRA_NOMINAL_METRIC_DEFINITIONS
-        .filter((definition) => String(definition?.queryValue || "").trim())
-        .forEach((definition) => {
+      const requestSpecs = buildNominalRequestSpecsForDevice(
+        valueDescriptionsByDevice.get(String(deviceId)) || [],
+        {
+          fallbackToLegacyExtraMetrics: true,
+        }
+      );
+      requestSpecs.forEach((requestSpec) => {
+        const metric = requestSpec.metricName;
+        const phase = requestSpec.phase;
+        const queryValue = requestSpec.queryValue;
+        const isFirstRequest = deviceIndex === 0 && requests.length === 0;
         requests.push(
           (async () => {
             const requestUrl = buildHistoryUrl(projectName, deviceId, filters, {
-              metric: definition.queryValue || definition.key,
-              phase: null,
+              metric: queryValue,
+              phase,
             });
             state.latestApiUrls.push(requestUrl);
+            if (isFirstRequest) {
+              setStatus(`Calling API: ${requestUrl}`);
+            }
             const xmlText = await getText(requestUrl, "application/xml");
-            return normalizeNominalValueXml(xmlText, deviceId, definition.key, "");
+            return normalizeNominalValueXml(xmlText, deviceId, metric, phase);
           })()
         );
       });
+      if (!requestSpecs.length) {
+        API_CONFIG.nominalValueMetrics.forEach((metric) => {
+          API_CONFIG.nominalValuePhases.forEach((phase) => {
+            requests.push(
+              (async () => {
+                const requestUrl = buildHistoryUrl(projectName, deviceId, filters, { metric, phase });
+                state.latestApiUrls.push(requestUrl);
+                if (
+                  deviceIndex === 0 &&
+                  metric === API_CONFIG.nominalValueMetrics[0] &&
+                  phase === API_CONFIG.nominalValuePhases[0]
+                ) {
+                  setStatus(`Calling API: ${requestUrl}`);
+                }
+                const xmlText = await getText(requestUrl, "application/xml");
+                return normalizeNominalValueXml(xmlText, deviceId, metric, phase);
+              })()
+            );
+          });
+        });
+      }
     });
   }
 
@@ -3079,6 +3196,227 @@ function hashText(value) {
     hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
   }
   return hash;
+}
+
+async function fetchDeviceValueDescriptionsForDevices(projectName, deviceIds) {
+  const safeProjectName = String(projectName || "").trim();
+  const safeDeviceIds = Array.isArray(deviceIds) ? deviceIds.map((deviceId) => String(deviceId || "").trim()).filter(Boolean) : [];
+  const output = new Map();
+  if (!safeProjectName || !safeDeviceIds.length || isDemoProjectName(safeProjectName)) {
+    return output;
+  }
+
+  await Promise.all(
+    safeDeviceIds.map(async (deviceId) => {
+      try {
+        const descriptions = await fetchDeviceValueDescriptions(safeProjectName, deviceId);
+        output.set(deviceId, descriptions);
+      } catch (error) {
+        console.warn(`Value description request failed for device ${deviceId}:`, error);
+        output.set(deviceId, []);
+      }
+    })
+  );
+
+  return output;
+}
+
+async function fetchDeviceValueDescriptions(projectName, deviceId, { force = false } = {}) {
+  const safeProjectName = String(projectName || "").trim();
+  const safeDeviceId = String(deviceId || "").trim();
+  if (!safeProjectName || !safeDeviceId) {
+    return [];
+  }
+
+  const projectCache =
+    state.deviceValueDescriptionsByProject[safeProjectName] ||
+    (state.deviceValueDescriptionsByProject[safeProjectName] = {});
+
+  if (!force && Array.isArray(projectCache[safeDeviceId])) {
+    return projectCache[safeDeviceId];
+  }
+
+  const requestUrl = buildValueDescriptionsUrl(safeProjectName, safeDeviceId);
+  const xmlText = await getText(requestUrl, "application/xml");
+  const descriptions = normalizeValueDescriptionsXml(xmlText);
+  projectCache[safeDeviceId] = descriptions;
+  return descriptions;
+}
+
+function buildValueDescriptionsUrl(projectName, deviceId) {
+  const path = buildApiPath("projects", projectName, "devices", deviceId, "hist", "values");
+  return buildUrl(path);
+}
+
+function normalizeValueDescriptionsXml(xmlText) {
+  if (!xmlText || !xmlText.trim()) {
+    return [];
+  }
+
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  const parserError = xml.querySelector("parsererror");
+  if (parserError) {
+    throw new Error("Value descriptions response is not valid XML.");
+  }
+
+  return Array.from(xml.querySelectorAll("valueDescriptionEnts > value")).map((node) => ({
+    id: String(node.querySelector("id")?.textContent?.trim() || ""),
+    online: String(node.querySelector("online")?.textContent?.trim() || "").toLowerCase() === "true",
+    timebase: String(node.querySelector("timebase")?.textContent?.trim() || ""),
+    type: String(node.querySelector("valueType > type")?.textContent?.trim() || ""),
+    typeName: String(node.querySelector("valueType > typeName")?.textContent?.trim() || ""),
+    unit: String(node.querySelector("valueType > unit")?.textContent || "").trim(),
+    value: String(node.querySelector("valueType > value")?.textContent?.trim() || ""),
+    valueName: String(node.querySelector("valueType > valueName")?.textContent?.trim() || ""),
+  }));
+}
+
+function buildNominalRequestSpecsForDevice(valueDescriptions, options = {}) {
+  const safeDescriptions = Array.isArray(valueDescriptions) ? valueDescriptions : [];
+  const fallbackToLegacyExtraMetrics = Boolean(options?.fallbackToLegacyExtraMetrics);
+  const requestSpecs = [];
+
+  API_CONFIG.nominalValueMetrics.forEach((metricName) => {
+    API_CONFIG.nominalValuePhases.forEach((phase) => {
+      if (!safeDescriptions.length || deviceSupportsValueType(safeDescriptions, metricName, phase)) {
+        requestSpecs.push({
+          metricName,
+          queryValue: metricName,
+          phase,
+        });
+      }
+    });
+  });
+
+  const powerFactorSource = resolveValueTypeCandidate(
+    safeDescriptions,
+    "CosPhi",
+    CAPABILITY_TYPE_PREFERENCES.POWER_FACTOR
+  );
+  if (powerFactorSource) {
+    requestSpecs.push({
+      metricName: "POWER_FACTOR",
+      queryValue: powerFactorSource.value,
+      phase: powerFactorSource.type || null,
+    });
+  } else {
+    const activePowerSource = resolveValueTypeCandidate(
+      safeDescriptions,
+      "PowerActive",
+      CAPABILITY_TYPE_PREFERENCES.POWER_ACTIVE_SUM
+    );
+    const apparentPowerSource = resolveValueTypeCandidate(
+      safeDescriptions,
+      "PowerApparent",
+      CAPABILITY_TYPE_PREFERENCES.POWER_APPARENT_SUM
+    );
+    if (activePowerSource && apparentPowerSource) {
+      requestSpecs.push({
+        metricName: "POWER_ACTIVE_SUM",
+        queryValue: activePowerSource.value,
+        phase: activePowerSource.type || null,
+      });
+      requestSpecs.push({
+        metricName: "POWER_APPARENT_SUM",
+        queryValue: apparentPowerSource.value,
+        phase: apparentPowerSource.type || null,
+      });
+    }
+  }
+
+  ["TOP_OIL_TEMPERATURE", "WINDING_TEMPERATURE", "LOAD_PERCENT"].forEach((metricKey) => {
+    const definition = getExtraNominalMetricDefinition(metricKey);
+    const source = resolveValueTypeCandidate(
+      safeDescriptions,
+      definition?.queryValue || metricKey
+    );
+    if (source) {
+      requestSpecs.push({
+        metricName: metricKey,
+        queryValue: source.value,
+        phase: source.type || null,
+      });
+    }
+  });
+
+  const externalTemperatureSource = resolveValueTypeCandidate(
+    safeDescriptions,
+    "Temperature",
+    ["TEMP_EXTERN", "TEMP_EXtern", "TEMP_EXTERN".toLowerCase(), "Temp_Extern"]
+  );
+  if (externalTemperatureSource) {
+    requestSpecs.push({
+      metricName: "TEMPERATURE_EXTERNAL",
+      queryValue: externalTemperatureSource.value,
+      phase: externalTemperatureSource.type || null,
+    });
+  }
+
+  if (!safeDescriptions.length && fallbackToLegacyExtraMetrics) {
+    EXTRA_NOMINAL_METRIC_DEFINITIONS
+      .filter((definition) =>
+        String(definition?.queryValue || "").trim() &&
+        !["V_UNBALANCE", "A_UNBALANCE"].includes(String(definition?.key || "").trim())
+      )
+      .forEach((definition) => {
+        requestSpecs.push({
+          metricName: definition.key,
+          queryValue: definition.queryValue || definition.key,
+          phase: null,
+        });
+      });
+  }
+
+  return dedupeNominalRequestSpecs(requestSpecs);
+}
+
+function dedupeNominalRequestSpecs(requestSpecs) {
+  const seen = new Set();
+  return (Array.isArray(requestSpecs) ? requestSpecs : []).filter((requestSpec) => {
+    const key = [
+      String(requestSpec?.metricName || "").trim().toUpperCase(),
+      String(requestSpec?.queryValue || "").trim().toUpperCase(),
+      String(requestSpec?.phase || "").trim().toUpperCase(),
+    ].join("|");
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function deviceSupportsValueType(valueDescriptions, valueName, typeName = "") {
+  return Boolean(resolveValueTypeCandidate(valueDescriptions, valueName, [typeName]));
+}
+
+function resolveValueTypeCandidate(valueDescriptions, valueName, preferredTypes = []) {
+  const safeDescriptions = Array.isArray(valueDescriptions) ? valueDescriptions : [];
+  const safeValueName = String(valueName || "").trim().toUpperCase();
+  if (!safeValueName) {
+    return null;
+  }
+
+  const matches = safeDescriptions.filter((description) =>
+    String(description?.value || "").trim().toUpperCase() === safeValueName
+  );
+  if (!matches.length) {
+    return null;
+  }
+
+  const safePreferredTypes = Array.isArray(preferredTypes)
+    ? preferredTypes.map((type) => String(type || "").trim().toUpperCase()).filter(Boolean)
+    : [];
+  for (const preferredType of safePreferredTypes) {
+    const match = matches.find(
+      (description) => String(description?.type || "").trim().toUpperCase() === preferredType
+    );
+    if (match) {
+      return match;
+    }
+  }
+
+  return matches[0];
 }
 
 function buildHistoryUrl(projectName, deviceId, filters, nominalOptions = null) {
@@ -3509,6 +3847,9 @@ function buildNominalColumnLayout() {
     if (!definition?.key) {
       return;
     }
+    if (HIDDEN_NOMINAL_METRIC_KEYS.includes(String(definition.key))) {
+      return;
+    }
     displayColumns.push(definition.key);
     valueColumns.push(definition.key);
     if (definition.unitColumn) {
@@ -3601,9 +3942,7 @@ function buildDeviceMetricsTable(readings, selectedDeviceIds) {
         }
         const target = byTimestamp.get(key);
         Object.entries(reading.metrics || {}).forEach(([column, value]) => {
-          if (target.metrics[column] !== undefined) {
-            target.metrics[column] = value;
-          }
+          target.metrics[column] = value;
         });
       });
 
@@ -3616,6 +3955,9 @@ function buildDeviceMetricsTable(readings, selectedDeviceIds) {
         const row = {
           _capturedAt: capturedAt,
         };
+        Object.entries(entry.metrics || {}).forEach(([metricKey, value]) => {
+          row[metricKey] = value;
+        });
         nominalLayout.displayColumns.forEach((column) => {
           const unitColumn = nominalLayout.valueToUnitColumn[column];
           row[column] = formatValueWithUnit(
@@ -3685,19 +4027,7 @@ function shouldIncludeDateColumn() {
 }
 
 function getNominalReportColumns(includeDate = true) {
-  const columns = [
-    "Substation",
-    "Device",
-    ...(includeDate ? ["Date"] : []),
-    "Top Oil Temperature",
-    "Winding Temperature",
-    "Load %",
-    "Transformation Ratio",
-    "V Unbalance",
-    "A Unbalance",
-    "Power Factor",
-  ];
-  return columns;
+  return ["Substation", "Device", ...(includeDate ? ["Date"] : []), ...REPORT_METRIC_COLUMNS];
 }
 
 function getPowerQualityReportColumns(includeDate = true) {
@@ -3726,6 +4056,7 @@ function buildPowerQualityReportRows(readings) {
 
       return {
         _capturedAt: capturedAt,
+        _deviceId: String(reading?.deviceId || ""),
         Category: getDeviceReportCategory(reading?.deviceId),
         Device: getDeviceDisplayName(reading?.deviceId),
         ...(includeDate ? { Date: getDateKey(capturedAt) } : {}),
@@ -4064,6 +4395,161 @@ function buildNominalRowsTable(deviceTables, metricColumns, includeDate = true) 
   };
 }
 
+function getLatestDerivedMetricsFromGroupedRows(deviceId, groupedRowsByDevice, metricColumns) {
+  const safeDeviceId = String(deviceId || "").trim();
+  if (!safeDeviceId || !(groupedRowsByDevice instanceof Map)) {
+    return null;
+  }
+  const rows = groupedRowsByDevice.get(safeDeviceId);
+  if (!Array.isArray(rows) || !rows.length) {
+    return null;
+  }
+  const latestRow = rows[rows.length - 1] || null;
+  if (!latestRow) {
+    return null;
+  }
+  return {
+    ...latestRow,
+    ...buildDerivedNominalMetrics(latestRow),
+    ...buildTransformationRatioMetrics(safeDeviceId, latestRow, metricColumns, groupedRowsByDevice),
+  };
+}
+
+function resolveVoltageMetricContext(
+  deviceId,
+  getMetricsForDevice,
+  projectName = state.projectName,
+  options = {}
+) {
+  const safeDeviceId = String(deviceId || "").trim();
+  if (!safeDeviceId || typeof getMetricsForDevice !== "function") {
+    return { lv: null, hv: null };
+  }
+
+  const mapping = getTransformerMappingForDevice(safeDeviceId, projectName);
+  const currentVoltageClass = normalizeVoltageClass(getDeviceVoltageClass(safeDeviceId));
+  const safeOptions = options && typeof options === "object" ? options : {};
+  const lvFallbackClasses = Array.isArray(safeOptions?.lvFallbackClasses)
+    ? safeOptions.lvFallbackClasses.map((value) => normalizeVoltageClass(value)).filter(Boolean)
+    : ["400V"];
+  const hvFallbackClasses = Array.isArray(safeOptions?.hvFallbackClasses)
+    ? safeOptions.hvFallbackClasses.map((value) => normalizeVoltageClass(value)).filter(Boolean)
+    : ["11kV", "33kV"];
+  const expectedVoltageClasses = {
+    lv: normalizeVoltageClass(safeOptions?.expectedVoltageClasses?.lv || ""),
+    hv: normalizeVoltageClass(safeOptions?.expectedVoltageClasses?.hv || ""),
+  };
+
+  const buildVoltageContext = (side) => {
+    const mappedDeviceId = String(
+      side === "lv" ? mapping?.lvDeviceId || "" : mapping?.htDeviceId || ""
+    ).trim();
+    const fallbackClasses = side === "lv" ? lvFallbackClasses : hvFallbackClasses;
+    const fallbackToCurrentDevice = fallbackClasses.includes(currentVoltageClass);
+    const sourceDeviceId = mappedDeviceId || (fallbackToCurrentDevice ? safeDeviceId : "");
+    if (!sourceDeviceId) {
+      return null;
+    }
+
+    const metricsRow = getMetricsForDevice(sourceDeviceId);
+    if (!metricsRow) {
+      return null;
+    }
+
+    return {
+      deviceId: sourceDeviceId,
+      voltageClass: normalizeVoltageClass(getDeviceVoltageClass(sourceDeviceId)),
+      expectedVoltageClass: expectedVoltageClasses[side] || "",
+      value: metricsRow?.V_AVG,
+      min: metricsRow?.V_AVG_Min,
+      max: metricsRow?.V_AVG_Max,
+    };
+  };
+
+  return {
+    lv: buildVoltageContext("lv"),
+    hv: buildVoltageContext("hv"),
+  };
+}
+
+function evaluateVoltageContextCompliance(voltageContext, parameterLabel) {
+  const context = voltageContext && typeof voltageContext === "object" ? voltageContext : null;
+  const rawValue = context?.value;
+  const numericValue = parseNumericValue(rawValue);
+  const minRaw = context?.min;
+  const maxRaw = context?.max;
+  const minNumeric = parseNumericValue(minRaw);
+  const maxNumeric = parseNumericValue(maxRaw);
+  const tolerance = getVoltageToleranceForClass(context?.expectedVoltageClass || context?.voltageClass);
+  const unit = "V";
+  const hasTolerance =
+    Number.isFinite(tolerance?.min) && Number.isFinite(tolerance?.max);
+
+  if (
+    !hasTolerance ||
+    (!Number.isFinite(numericValue) && !Number.isFinite(minNumeric) && !Number.isFinite(maxNumeric))
+  ) {
+    return {
+      available: false,
+      pass: false,
+      failedChannels: [],
+      failedDetails: [],
+    };
+  }
+
+  const minPass = !Number.isFinite(minNumeric) || minNumeric >= tolerance.min;
+  const maxPass = !Number.isFinite(maxNumeric) || maxNumeric <= tolerance.max;
+  const valuePass =
+    !Number.isFinite(numericValue) ||
+    (numericValue >= tolerance.min && numericValue <= tolerance.max);
+  const pass = minPass && maxPass && valuePass;
+  if (pass) {
+    return {
+      available: true,
+      pass: true,
+      failedChannels: [],
+      failedDetails: [],
+    };
+  }
+
+  const failedDetails = [];
+  if (!minPass) {
+    failedDetails.push({
+      parameter: parameterLabel,
+      bound: "Min",
+      value: formatMeasuredValue(minRaw, minNumeric, unit, 5),
+      limit: formatToleranceValue(tolerance.min, unit, 5),
+      operator: "<",
+    });
+  }
+  if (!maxPass) {
+    failedDetails.push({
+      parameter: parameterLabel,
+      bound: "Max",
+      value: formatMeasuredValue(maxRaw, maxNumeric, unit, 5),
+      limit: formatToleranceValue(tolerance.max, unit, 5),
+      operator: ">",
+    });
+  }
+  if (!failedDetails.length && !valuePass) {
+    const isBelow = numericValue < tolerance.min;
+    failedDetails.push({
+      parameter: parameterLabel,
+      bound: "Value",
+      value: formatMeasuredValue(rawValue, numericValue, unit, 5),
+      limit: formatToleranceValue(isBelow ? tolerance.min : tolerance.max, unit, 5),
+      operator: isBelow ? "<" : ">",
+    });
+  }
+
+  return {
+    available: true,
+    pass: false,
+    failedChannels: [],
+    failedDetails,
+  };
+}
+
 function buildNominalDeviceComplianceRow(
   deviceId,
   deviceLabel,
@@ -4084,55 +4570,63 @@ function buildNominalDeviceComplianceRow(
     metricColumns,
     groupedRowsByDevice
   );
+  const derivedNominalMetrics = buildDerivedNominalMetrics(latestRow);
   const ratioRow = {
     ...latestRow,
+    ...derivedNominalMetrics,
     ...transformationRatioMetrics,
   };
-  const topOilTemperatureCompliance = evaluateSingleMetricCompliance(
-    ratioRow,
-    "TOP_OIL_TEMPERATURE",
-    "Top Oil Temperature",
-    { deviceId }
+  const voltageContext = resolveVoltageMetricContext(
+    deviceId,
+    (lookupDeviceId) =>
+      String(lookupDeviceId || "").trim() === String(deviceId || "").trim()
+        ? ratioRow
+        : getLatestDerivedMetricsFromGroupedRows(lookupDeviceId, groupedRowsByDevice, metricColumns),
+    state.projectName,
+    {
+      lvFallbackClasses: [SUBSTATION_VOLTAGE_CONTEXT.lvClass],
+      hvFallbackClasses: [SUBSTATION_VOLTAGE_CONTEXT.hvClass],
+      expectedVoltageClasses: {
+        lv: SUBSTATION_VOLTAGE_CONTEXT.lvClass,
+        hv: SUBSTATION_VOLTAGE_CONTEXT.hvClass,
+      },
+    }
   );
-  const windingTemperatureCompliance = evaluateSingleMetricCompliance(
-    ratioRow,
-    "WINDING_TEMPERATURE",
-    "Winding Temperature",
-    { deviceId }
-  );
+  const lvVoltageCompliance = evaluateVoltageContextCompliance(voltageContext.lv, "LV Voltage");
+  const hvVoltageCompliance = evaluateVoltageContextCompliance(voltageContext.hv, "HV Voltage");
   const loadPercentCompliance = evaluateSingleMetricCompliance(
     ratioRow,
     "LOAD_PERCENT",
-    "Load %",
+    "Load",
     { deviceId }
   );
   const transformationRatioCompliance = evaluateSingleMetricCompliance(
     ratioRow,
     "TRANSFORMATION_RATIO",
-    "Transformation Ratio",
+    "TX Voltage Ratio",
     { deviceId }
   );
   const vUnbalanceCompliance = evaluateSingleMetricCompliance(
     ratioRow,
     "V_UNBALANCE",
-    "V Unbalance",
+    "LV Voltage Unbalance",
     { deviceId }
   );
   const aUnbalanceCompliance = evaluateSingleMetricCompliance(
     ratioRow,
     "A_UNBALANCE",
-    "A Unbalance",
+    "LV Current Unbalance",
     { deviceId }
   );
   const powerFactorCompliance = evaluateSingleMetricCompliance(
     ratioRow,
     "POWER_FACTOR",
-    "Power Factor",
+    "LV Power Factor",
     { deviceId }
   );
   const deviceHighlightComplianceResults = [
-    topOilTemperatureCompliance,
-    windingTemperatureCompliance,
+    lvVoltageCompliance,
+    hvVoltageCompliance,
     loadPercentCompliance,
     transformationRatioCompliance,
     vUnbalanceCompliance,
@@ -4147,29 +4641,32 @@ function buildNominalDeviceComplianceRow(
     row: {
       Substation: substationLabel || getDeviceSubstation(deviceId),
       Device: deviceLabel,
-      "Top Oil Temperature": getMetricCellDisplayValue(
-        topOilTemperatureCompliance,
-        formatMeasuredValue(
-          latestRow?.TOP_OIL_TEMPERATURE,
-          parseNumericValue(latestRow?.TOP_OIL_TEMPERATURE),
-          "degC",
-          5
-        )
+      "LV Voltage": getMetricCellDisplayValue(
+        lvVoltageCompliance,
+        formatMeasuredValue(voltageContext.lv?.value, parseNumericValue(voltageContext.lv?.value), "V", 5)
       ),
-      "Winding Temperature": getMetricCellDisplayValue(
-        windingTemperatureCompliance,
-        formatMeasuredValue(
-          latestRow?.WINDING_TEMPERATURE,
-          parseNumericValue(latestRow?.WINDING_TEMPERATURE),
-          "degC",
-          5
-        )
+      "HV Voltage": getMetricCellDisplayValue(
+        hvVoltageCompliance,
+        formatMeasuredValue(voltageContext.hv?.value, parseNumericValue(voltageContext.hv?.value), "V", 5)
       ),
-      "Load %": getMetricCellDisplayValue(
+      Load: getMetricCellDisplayValue(
         loadPercentCompliance,
-        formatMeasuredValue(latestRow?.LOAD_PERCENT, parseNumericValue(latestRow?.LOAD_PERCENT), "%", 5)
+        formatMeasuredValue(ratioRow?.LOAD_PERCENT, parseNumericValue(ratioRow?.LOAD_PERCENT), "%", 5)
       ),
-      "Transformation Ratio": getMetricCellDisplayValue(
+      "LV MSB Temp (from PLC)": NON_POWER_DATA_PLACEHOLDER,
+      "LV Power Factor": getMetricCellDisplayValue(
+        powerFactorCompliance,
+        formatMeasuredValue(ratioRow?.POWER_FACTOR, parseNumericValue(ratioRow?.POWER_FACTOR), "", 5)
+      ),
+      "LV Voltage Unbalance": getMetricCellDisplayValue(
+        vUnbalanceCompliance,
+        formatMeasuredValue(ratioRow?.V_UNBALANCE, parseNumericValue(ratioRow?.V_UNBALANCE), "%", 5)
+      ),
+      "LV Current Unbalance": getMetricCellDisplayValue(
+        aUnbalanceCompliance,
+        formatMeasuredValue(ratioRow?.A_UNBALANCE, parseNumericValue(ratioRow?.A_UNBALANCE), "%", 5)
+      ),
+      "TX Voltage Ratio": getMetricCellDisplayValue(
         transformationRatioCompliance,
         formatMeasuredValue(
           ratioRow?.TRANSFORMATION_RATIO,
@@ -4179,27 +4676,18 @@ function buildNominalDeviceComplianceRow(
         ),
         { showValueWhenCompliant: true }
       ),
-      "V Unbalance": getMetricCellDisplayValue(
-        vUnbalanceCompliance,
-        formatMeasuredValue(latestRow?.V_UNBALANCE, parseNumericValue(latestRow?.V_UNBALANCE), "%", 5)
-      ),
-      "A Unbalance": getMetricCellDisplayValue(
-        aUnbalanceCompliance,
-        formatMeasuredValue(latestRow?.A_UNBALANCE, parseNumericValue(latestRow?.A_UNBALANCE), "%", 5)
-      ),
-      "Power Factor": getMetricCellDisplayValue(
-        powerFactorCompliance,
-        formatMeasuredValue(latestRow?.POWER_FACTOR, parseNumericValue(latestRow?.POWER_FACTOR), "", 5)
-      ),
+      "TX Oil Pressure": NON_POWER_DATA_PLACEHOLDER,
+      "TX Temperature": NON_POWER_DATA_PLACEHOLDER,
+      "TX Pressure": NON_POWER_DATA_PLACEHOLDER,
     },
     cellClasses: {
-      "Top Oil Temperature": getComplianceStatusClass(topOilTemperatureCompliance),
-      "Winding Temperature": getComplianceStatusClass(windingTemperatureCompliance),
-      "Load %": getComplianceStatusClass(loadPercentCompliance),
-      "Transformation Ratio": getComplianceStatusClass(transformationRatioCompliance),
-      "V Unbalance": getComplianceStatusClass(vUnbalanceCompliance),
-      "A Unbalance": getComplianceStatusClass(aUnbalanceCompliance),
-      "Power Factor": getComplianceStatusClass(powerFactorCompliance),
+      "LV Voltage": getComplianceStatusClass(lvVoltageCompliance),
+      "HV Voltage": getComplianceStatusClass(hvVoltageCompliance),
+      Load: getComplianceStatusClass(loadPercentCompliance),
+      "LV Power Factor": getComplianceStatusClass(powerFactorCompliance),
+      "LV Voltage Unbalance": getComplianceStatusClass(vUnbalanceCompliance),
+      "LV Current Unbalance": getComplianceStatusClass(aUnbalanceCompliance),
+      "TX Voltage Ratio": getComplianceStatusClass(transformationRatioCompliance),
       _row: isFullyCompliant ? "row-compliant" : "",
     },
   };
@@ -4489,14 +4977,20 @@ function getComplianceStatusClass(complianceResult) {
 
 function getMetricUnitForParameter(parameterLabel) {
   const key = String(parameterLabel || "").trim().toUpperCase();
-  if (key === "TOP OIL TEMPERATURE" || key === "WINDING TEMPERATURE") {
+  if (key === "LV VOLTAGE" || key === "HV VOLTAGE") {
+    return "V";
+  }
+  if (key === "TOP OIL TEMPERATURE" || key === "WINDING TEMPERATURE" || key === "TX TEMPERATURE") {
     return "degC";
   }
   if (
+    key === "LOAD" ||
     key === "LOAD %" ||
     key === "LOAD_PERCENT" ||
     key === "V UNBALANCE" ||
-    key === "A UNBALANCE"
+    key === "A UNBALANCE" ||
+    key === "LV VOLTAGE UNBALANCE" ||
+    key === "LV CURRENT UNBALANCE"
   ) {
     return "%";
   }
@@ -4531,6 +5025,30 @@ function formatPowerQualityPercent(value) {
     return "";
   }
   return /%$/.test(text) ? text : `${text}%`;
+}
+
+function formatMainIntakeMetricNumber(value, decimalPlaces = 2) {
+  const numericValue = parseNumericValue(value);
+  if (!Number.isFinite(numericValue)) {
+    return "N/A";
+  }
+  return numericValue.toFixed(decimalPlaces);
+}
+
+function formatMainIntakeMetricPercent(value) {
+  const numericValue = parseNumericValue(value);
+  if (!Number.isFinite(numericValue)) {
+    return "N/A";
+  }
+  return `${numericValue.toFixed(2)}%`;
+}
+
+function formatMainIntakeMetricTemperature(value) {
+  const numericValue = parseNumericValue(value);
+  if (!Number.isFinite(numericValue)) {
+    return "N/A";
+  }
+  return `${numericValue.toFixed(2)}degC`;
 }
 
 function getDateKey(value) {
@@ -4799,12 +5317,12 @@ function getTableStandardRow(columns) {
     return null;
   }
 
-  if (NOMINAL_STATUS_COLUMNS.some((column) => safeColumns.includes(column))) {
-    return buildNominalStandardRow(safeColumns);
-  }
-
   if (safeColumns.includes("Main Intake") && safeColumns.includes("LV Voltage")) {
     return buildMainIntakeStandardRow(safeColumns);
+  }
+
+  if (NOMINAL_STATUS_COLUMNS.some((column) => safeColumns.includes(column))) {
+    return buildNominalStandardRow(safeColumns);
   }
 
   return null;
@@ -4821,6 +5339,14 @@ function buildNominalStandardRow(columns) {
       row[column] = "";
       return;
     }
+    if (column === "LV Voltage") {
+      row[column] = getToleranceRangeForVoltageClass(SUBSTATION_VOLTAGE_CONTEXT.lvClass, { includeUnits: true });
+      return;
+    }
+    if (column === "HV Voltage") {
+      row[column] = getToleranceRangeForVoltageClass(SUBSTATION_VOLTAGE_CONTEXT.hvClass, { includeUnits: true });
+      return;
+    }
     row[column] = getNominalHeaderToleranceLabel(column);
   });
   row._isStandardRow = true;
@@ -4831,17 +5357,17 @@ function buildMainIntakeStandardRow(columns) {
   const standards = {
     "Main Intake": "",
     Device: "Standard",
-    "LV Voltage": "By class",
-    "HV Voltage": "By class",
+    "LV Voltage": getToleranceRangeForVoltageClass(MAIN_INTAKE_VOLTAGE_CONTEXT.lvClass, { includeUnits: true }),
+    "HV Voltage": getToleranceRangeForVoltageClass(MAIN_INTAKE_VOLTAGE_CONTEXT.hvClass, { includeUnits: true }),
     Load: getToleranceRangeByMetricKey("LOAD_PERCENT", { includeUnits: true }),
-    "Power Factor": getToleranceRangeByMetricKey("POWER_FACTOR", { includeUnits: true }),
-    "Voltage Unbalance": getToleranceRangeByMetricKey("V_UNBALANCE", { includeUnits: true }),
-    "Current Unbalance": getToleranceRangeByMetricKey("A_UNBALANCE", { includeUnits: true }),
+    "LV MSB Temp (from PLC)": "-",
+    "LV Power Factor": getToleranceRangeByMetricKey("POWER_FACTOR", { includeUnits: true }),
+    "LV Voltage Unbalance": getToleranceRangeByMetricKey("V_UNBALANCE", { includeUnits: true }),
+    "LV Current Unbalance": getToleranceRangeByMetricKey("A_UNBALANCE", { includeUnits: true }),
     "TX Voltage Ratio": getToleranceRangeByMetricKey("TRANSFORMATION_RATIO", { includeUnits: true }),
-    "TX Oil Level": "-",
-    "TX Temperature": getToleranceRangeByMetricKey("TOP_OIL_TEMPERATURE", { includeUnits: true }),
+    "TX Oil Pressure": "-",
+    "TX Temperature": "-",
     "TX Pressure": "-",
-    "Power Quality (Event)": "No PQ Event",
   };
 
   const row = {};
@@ -4939,39 +5465,39 @@ function buildTwoRowHeaderContent(columns) {
 function getRequirementToleranceLegendRows() {
   return [
     {
-      metric: "Top Oil Temperature",
-      requirement: "Measured value must stay within the transformer top oil limit.",
-      tolerance: getToleranceRangeByMetricKey("TOP_OIL_TEMPERATURE", { includeUnits: true }),
+      metric: "LV Voltage",
+      requirement: "Measured LV average phase voltage must stay within the LV class tolerance.",
+      tolerance: getToleranceRangeForVoltageClass(SUBSTATION_VOLTAGE_CONTEXT.lvClass, { includeUnits: true }),
     },
     {
-      metric: "Winding Temperature",
-      requirement: "Measured value must stay within the transformer winding limit.",
-      tolerance: getToleranceRangeByMetricKey("WINDING_TEMPERATURE", { includeUnits: true }),
+      metric: "HV Voltage",
+      requirement: "Measured HV average phase voltage must stay within the substation HT class tolerance.",
+      tolerance: getToleranceRangeForVoltageClass(SUBSTATION_VOLTAGE_CONTEXT.hvClass, { includeUnits: true }),
     },
     {
-      metric: "Load %",
+      metric: "Load",
       requirement: "Measured transformer loading must remain within rated capacity.",
       tolerance: getToleranceRangeByMetricKey("LOAD_PERCENT", { includeUnits: true }),
     },
     {
-      metric: "Transformation Ratio",
-      requirement: "Calculated from mapped HT/LV devices using average phase voltage for each side.",
-      tolerance: getToleranceRangeByMetricKey("TRANSFORMATION_RATIO", { includeUnits: true }),
+      metric: "LV Power Factor",
+      requirement: "Measured value must stay within tolerance range.",
+      tolerance: getToleranceRangeByMetricKey("POWER_FACTOR", { includeUnits: true }),
     },
     {
-      metric: "V Unbalance",
+      metric: "LV Voltage Unbalance",
       requirement: "Measured value must stay within tolerance range.",
       tolerance: getToleranceRangeByMetricKey("V_UNBALANCE", { includeUnits: true }),
     },
     {
-      metric: "A Unbalance",
+      metric: "LV Current Unbalance",
       requirement: "Measured value must stay within tolerance range.",
       tolerance: getToleranceRangeByMetricKey("A_UNBALANCE", { includeUnits: true }),
     },
     {
-      metric: "Power Factor",
-      requirement: "Measured value must stay within tolerance range.",
-      tolerance: getToleranceRangeByMetricKey("POWER_FACTOR", { includeUnits: true }),
+      metric: "TX Voltage Ratio",
+      requirement: "Calculated from mapped HT/LV devices using average phase voltage for each side.",
+      tolerance: getToleranceRangeByMetricKey("TRANSFORMATION_RATIO", { includeUnits: true }),
     },
   ];
 }
@@ -4983,6 +5509,148 @@ function renderDateTabs() {
 
   dateTabs.innerHTML = "";
   dateTabs.classList.add("hidden");
+}
+
+function buildDerivedNominalMetrics(row) {
+  const safeRow = row && typeof row === "object" ? row : {};
+  const derived = {};
+
+  const voltageAverage = calculateAverageFromMetricKeys(safeRow, ["V1", "V2", "V3"]);
+  const voltageMinAverage = calculateAverageFromMetricKeys(safeRow, ["V1_Min", "V2_Min", "V3_Min"]);
+  const voltageMaxAverage = calculateAverageFromMetricKeys(safeRow, ["V1_Max", "V2_Max", "V3_Max"]);
+  const voltageUnbalance = calculatePercentUnbalanceFromMetricKeys(safeRow, ["V1", "V2", "V3"]);
+  const voltageUnbalanceMin = calculatePercentUnbalanceFromMetricKeys(safeRow, ["V1_Min", "V2_Min", "V3_Min"]);
+  const voltageUnbalanceMax = calculatePercentUnbalanceFromMetricKeys(safeRow, ["V1_Max", "V2_Max", "V3_Max"]);
+
+  if (Number.isFinite(voltageAverage) && !hasUsableMetricValue(safeRow, "V_AVG")) {
+    derived.V_AVG = voltageAverage.toFixed(2);
+  }
+  if (Number.isFinite(voltageMinAverage) && !hasUsableMetricValue(safeRow, "V_AVG_Min")) {
+    derived.V_AVG_Min = voltageMinAverage.toFixed(2);
+  }
+  if (Number.isFinite(voltageMaxAverage) && !hasUsableMetricValue(safeRow, "V_AVG_Max")) {
+    derived.V_AVG_Max = voltageMaxAverage.toFixed(2);
+  }
+  if (Number.isFinite(voltageUnbalance) && !hasUsableMetricValue(safeRow, "V_UNBALANCE")) {
+    derived.V_UNBALANCE = voltageUnbalance.toFixed(2);
+  }
+  if (Number.isFinite(voltageUnbalanceMin) && !hasUsableMetricValue(safeRow, "V_UNBALANCE_Min")) {
+    derived.V_UNBALANCE_Min = voltageUnbalanceMin.toFixed(2);
+  }
+  if (Number.isFinite(voltageUnbalanceMax) && !hasUsableMetricValue(safeRow, "V_UNBALANCE_Max")) {
+    derived.V_UNBALANCE_Max = voltageUnbalanceMax.toFixed(2);
+  }
+
+  const currentAverage = calculateAverageFromMetricKeys(safeRow, ["A1", "A2", "A3"]);
+  const currentMinAverage = calculateAverageFromMetricKeys(safeRow, ["A1_Min", "A2_Min", "A3_Min"]);
+  const currentMaxAverage = calculateAverageFromMetricKeys(safeRow, ["A1_Max", "A2_Max", "A3_Max"]);
+  const currentUnbalance = calculatePercentUnbalanceFromMetricKeys(safeRow, ["A1", "A2", "A3"]);
+  const currentUnbalanceMin = calculatePercentUnbalanceFromMetricKeys(safeRow, ["A1_Min", "A2_Min", "A3_Min"]);
+  const currentUnbalanceMax = calculatePercentUnbalanceFromMetricKeys(safeRow, ["A1_Max", "A2_Max", "A3_Max"]);
+
+  if (Number.isFinite(currentAverage) && !hasUsableMetricValue(safeRow, "A_AVG")) {
+    derived.A_AVG = currentAverage.toFixed(2);
+  }
+  if (Number.isFinite(currentMinAverage) && !hasUsableMetricValue(safeRow, "A_AVG_Min")) {
+    derived.A_AVG_Min = currentMinAverage.toFixed(2);
+  }
+  if (Number.isFinite(currentMaxAverage) && !hasUsableMetricValue(safeRow, "A_AVG_Max")) {
+    derived.A_AVG_Max = currentMaxAverage.toFixed(2);
+  }
+  if (Number.isFinite(currentUnbalance) && !hasUsableMetricValue(safeRow, "A_UNBALANCE")) {
+    derived.A_UNBALANCE = currentUnbalance.toFixed(2);
+  }
+  if (Number.isFinite(currentUnbalanceMin) && !hasUsableMetricValue(safeRow, "A_UNBALANCE_Min")) {
+    derived.A_UNBALANCE_Min = currentUnbalanceMin.toFixed(2);
+  }
+  if (Number.isFinite(currentUnbalanceMax) && !hasUsableMetricValue(safeRow, "A_UNBALANCE_Max")) {
+    derived.A_UNBALANCE_Max = currentUnbalanceMax.toFixed(2);
+  }
+
+  const directPowerFactor = parseNumericValue(safeRow?.POWER_FACTOR);
+  if (!Number.isFinite(directPowerFactor)) {
+    const derivedPowerFactor = deriveRatioMetric(
+      safeRow,
+      "POWER_ACTIVE_SUM",
+      "POWER_APPARENT_SUM",
+      { clampMin: 0, clampMax: 1.2 }
+    );
+    if (derivedPowerFactor.value) {
+      derived.POWER_FACTOR = derivedPowerFactor.value;
+    }
+    if (derivedPowerFactor.min) {
+      derived.POWER_FACTOR_Min = derivedPowerFactor.min;
+    }
+    if (derivedPowerFactor.max) {
+      derived.POWER_FACTOR_Max = derivedPowerFactor.max;
+    }
+  }
+
+  return derived;
+}
+
+function hasUsableMetricValue(row, metricKey) {
+  const numericValue = parseNumericValue(row?.[metricKey]);
+  return Number.isFinite(numericValue);
+}
+
+function calculateAverageFromMetricKeys(row, metricKeys) {
+  const numericValues = (Array.isArray(metricKeys) ? metricKeys : [])
+    .map((metricKey) => parseNumericValue(row?.[metricKey]))
+    .filter((value) => Number.isFinite(value));
+  if (!numericValues.length) {
+    return Number.NaN;
+  }
+  return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
+}
+
+function calculatePercentUnbalanceFromMetricKeys(row, metricKeys) {
+  const numericValues = (Array.isArray(metricKeys) ? metricKeys : [])
+    .map((metricKey) => parseNumericValue(row?.[metricKey]))
+    .filter((value) => Number.isFinite(value));
+  if (numericValues.length < 2) {
+    return Number.NaN;
+  }
+
+  const average = numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
+  if (!Number.isFinite(average) || average === 0) {
+    return Number.NaN;
+  }
+
+  const maxDeviation = Math.max(
+    ...numericValues.map((value) => Math.abs(value - average))
+  );
+  return (maxDeviation / average) * 100;
+}
+
+function deriveRatioMetric(row, numeratorMetricKey, denominatorMetricKey, options = {}) {
+  const numeratorValue = parseNumericValue(row?.[numeratorMetricKey]);
+  const denominatorValue = parseNumericValue(row?.[denominatorMetricKey]);
+  const numeratorMin = parseNumericValue(row?.[`${numeratorMetricKey}_Min`]);
+  const numeratorMax = parseNumericValue(row?.[`${numeratorMetricKey}_Max`]);
+  const denominatorMin = parseNumericValue(row?.[`${denominatorMetricKey}_Min`]);
+  const denominatorMax = parseNumericValue(row?.[`${denominatorMetricKey}_Max`]);
+
+  return {
+    value: formatDerivedRatioValue(numeratorValue, denominatorValue, options),
+    min: formatDerivedRatioValue(numeratorMin, denominatorMax, options),
+    max: formatDerivedRatioValue(numeratorMax, denominatorMin, options),
+  };
+}
+
+function formatDerivedRatioValue(numerator, denominator, options = {}) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+    return "";
+  }
+
+  let ratio = numerator / denominator;
+  if (Number.isFinite(options?.clampMin)) {
+    ratio = Math.max(options.clampMin, ratio);
+  }
+  if (Number.isFinite(options?.clampMax)) {
+    ratio = Math.min(options.clampMax, ratio);
+  }
+  return ratio.toFixed(2);
 }
 
 function buildMergedCellSpanMap(rows, columns) {
@@ -5763,13 +6431,17 @@ function buildNominalExportRows(rows, deviceTable = null, includeDate = true) {
     const exportRow = {
       Substation: complianceRow.row?.Substation ?? substationLabel,
       Device: complianceRow.row?.Device ?? deviceLabel,
-      "Top Oil Temperature": complianceRow.row?.["Top Oil Temperature"] ?? "",
-      "Winding Temperature": complianceRow.row?.["Winding Temperature"] ?? "",
-      "Load %": complianceRow.row?.["Load %"] ?? "",
-      "Transformation Ratio": complianceRow.row?.["Transformation Ratio"] ?? "",
-      "V Unbalance": complianceRow.row?.["V Unbalance"] ?? "",
-      "A Unbalance": complianceRow.row?.["A Unbalance"] ?? "",
-      "Power Factor": complianceRow.row?.["Power Factor"] ?? "",
+      "LV Voltage": complianceRow.row?.["LV Voltage"] ?? "",
+      "HV Voltage": complianceRow.row?.["HV Voltage"] ?? "",
+      Load: complianceRow.row?.Load ?? "",
+      "LV MSB Temp (from PLC)": complianceRow.row?.["LV MSB Temp (from PLC)"] ?? "",
+      "LV Power Factor": complianceRow.row?.["LV Power Factor"] ?? "",
+      "LV Voltage Unbalance": complianceRow.row?.["LV Voltage Unbalance"] ?? "",
+      "LV Current Unbalance": complianceRow.row?.["LV Current Unbalance"] ?? "",
+      "TX Voltage Ratio": complianceRow.row?.["TX Voltage Ratio"] ?? "",
+      "TX Oil Pressure": complianceRow.row?.["TX Oil Pressure"] ?? "",
+      "TX Temperature": complianceRow.row?.["TX Temperature"] ?? "",
+      "TX Pressure": complianceRow.row?.["TX Pressure"] ?? "",
       _cellClasses: complianceRow.cellClasses || {},
     };
     if (includeDate) {
@@ -5980,7 +6652,7 @@ function getPdfColumnStyles(columns) {
   const safeColumns = Array.isArray(columns) ? columns : [];
   const styles = {};
 
-  if (safeColumns.includes("Power Factor")) {
+  if (safeColumns.includes("LV Power Factor")) {
     safeColumns.forEach((_column, index) => {
       styles[index] = {
         cellWidth: "auto",
