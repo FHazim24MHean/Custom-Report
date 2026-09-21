@@ -148,7 +148,7 @@
         <section class="config-grid">
           <section class="config-card">
             <h3>Substation Management</h3>
-            <p class="config-copy">Create substations for the selected project, then map devices into them. Devices stay unassigned until you map them here.</p>
+            <p class="config-copy">Create substations for the selected project, then map devices to a group and its HT or LV side.</p>
 
             <div class="config-filter-bar substation-create-bar">
               <div class="field-group">
@@ -167,6 +167,14 @@
                   <option value="">Select substation</option>
                 </select>
               </label>
+              <label class="field-group side-assign-field" for="substationSideSelect">
+                <span class="field-label">Electrical Side</span>
+                <select id="substationSideSelect" class="input-control">
+                  <option value="">Select side</option>
+                  <option value="HT">HT</option>
+                  <option value="LV">LV</option>
+                </select>
+              </label>
               <button id="assignSelectedSubstationButton" class="secondary-button" type="button">Assign to Selected</button>
               <button id="clearSelectedSubstationButton" class="secondary-button" type="button">Clear Selected Mapping</button>
               <span id="substationCount" class="config-device-count">0 substation(s)</span>
@@ -175,7 +183,7 @@
             <div id="substationList" class="config-device-list" aria-label="Configured substation list"></div>
 
             <h4 class="config-subsection-title">Main Intake Mapping</h4>
-            <p class="config-copy">Create main intake groups for the selected project, then map devices into them. This will appear as a separate table in the report.</p>
+            <p class="config-copy">Create main intake groups, then map devices to a group and its HT or LV side. This will appear as a separate table in the report.</p>
 
             <div class="config-filter-bar substation-create-bar">
               <div class="field-group">
@@ -192,6 +200,14 @@
                 <span class="field-label">Assign Selected Devices</span>
                 <select id="mainIntakeAssignmentSelect" class="input-control">
                   <option value="">Select main intake</option>
+                </select>
+              </label>
+              <label class="field-group side-assign-field" for="mainIntakeSideSelect">
+                <span class="field-label">Electrical Side</span>
+                <select id="mainIntakeSideSelect" class="input-control">
+                  <option value="">Select side</option>
+                  <option value="HT">HT</option>
+                  <option value="LV">LV</option>
                 </select>
               </label>
               <button id="assignSelectedMainIntakeButton" class="secondary-button" type="button">Assign to Selected</button>

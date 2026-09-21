@@ -28,6 +28,7 @@ const NOMINAL_METRIC_DEFINITIONS = {
 
 const NOMINAL_EXTRA_SUFFIXES = ["Min", "Max"];
 const VOLTAGE_CLASS_VALUES = ["33kV", "11kV", "400V"];
+const ELECTRICAL_SIDES = ["HT", "LV"];
 const DEFAULT_VOLTAGE_CLASS = "400V";
 const VOLTAGE_CLASS_TOLERANCES = {
   "33kV": { min: 31350, max: 34650 },
@@ -202,6 +203,7 @@ const POWER_QUALITY_REPORT_BASE_COLUMNS = [
   "Phase",
   "Voltage Sag",
 ];
+const REPORT_LINK_REQUEST = parseReportLinkRequest(window.location.search);
 
 const state = {
   projects: [],
@@ -277,6 +279,7 @@ const configDeviceList = document.getElementById("configDeviceList");
 const substationNameInput = document.getElementById("substationNameInput");
 const addSubstationButton = document.getElementById("addSubstationButton");
 const substationAssignmentSelect = document.getElementById("substationAssignmentSelect");
+const substationSideSelect = document.getElementById("substationSideSelect");
 const assignSelectedSubstationButton = document.getElementById("assignSelectedSubstationButton");
 const clearSelectedSubstationButton = document.getElementById("clearSelectedSubstationButton");
 const substationCount = document.getElementById("substationCount");
@@ -284,6 +287,7 @@ const substationList = document.getElementById("substationList");
 const mainIntakeNameInput = document.getElementById("mainIntakeNameInput");
 const addMainIntakeButton = document.getElementById("addMainIntakeButton");
 const mainIntakeAssignmentSelect = document.getElementById("mainIntakeAssignmentSelect");
+const mainIntakeSideSelect = document.getElementById("mainIntakeSideSelect");
 const assignSelectedMainIntakeButton = document.getElementById("assignSelectedMainIntakeButton");
 const clearSelectedMainIntakeButton = document.getElementById("clearSelectedMainIntakeButton");
 const mainIntakeCount = document.getElementById("mainIntakeCount");
@@ -307,6 +311,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderDeviceTables([]);
   renderMainIntakeReportTable();
   await loadProjects();
+  await applyReportLinkRequest(REPORT_LINK_REQUEST);
 });
 
 function bindEvents() {
@@ -685,6 +690,11 @@ function normalizeSubstationName(value) {
   return String(value || "").trim();
 }
 
+function normalizeElectricalSide(value) {
+  const side = String(value || "").trim().toUpperCase();
+  return ELECTRICAL_SIDES.includes(side) ? side : "";
+}
+
 function getProjectSubstationConfig(projectName) {
   const safeProjectName = String(projectName || "").trim();
   if (!safeProjectName) {
@@ -790,6 +800,7 @@ function normalizeSubstationApiConfig(projectName, payload) {
     deviceAssignments[deviceId] = {
       substationId,
       substationName: substation.name,
+      side: normalizeElectricalSide(assignment?.side),
     };
   });
 
@@ -834,6 +845,7 @@ function normalizeSubstationApiConfig(projectName, payload) {
     mainIntakeAssignments[deviceId] = {
       mainIntakeId,
       mainIntakeName: mainIntake.name,
+      side: normalizeElectricalSide(entry?.side),
     };
   });
 
@@ -905,6 +917,11 @@ function getProjectAssignedSubstation(projectName, deviceId) {
   return normalizeSubstationName(assignments[String(deviceId || "").trim()]?.substationName) || "Unassigned";
 }
 
+function getProjectAssignedSubstationSide(projectName, deviceId) {
+  const assignments = getProjectDeviceAssignments(projectName);
+  return normalizeElectricalSide(assignments[String(deviceId || "").trim()]?.side);
+}
+
 function getProjectDeviceLabel(projectName, deviceId) {
   const labels = getProjectDeviceLabels(projectName);
   return String(labels[String(deviceId || "").trim()] || "").trim();
@@ -925,6 +942,11 @@ function getProjectAssignedMainIntakeId(projectName, deviceId) {
 function getProjectAssignedMainIntake(projectName, deviceId) {
   const assignments = getProjectMainIntakeAssignments(projectName);
   return String(assignments[String(deviceId || "").trim()]?.mainIntakeName || "").trim() || "Unassigned";
+}
+
+function getProjectAssignedMainIntakeSide(projectName, deviceId) {
+  const assignments = getProjectMainIntakeAssignments(projectName);
+  return normalizeElectricalSide(assignments[String(deviceId || "").trim()]?.side);
 }
 
 function getDeviceReportCategory(deviceId, projectName = state.projectName) {
@@ -1138,7 +1160,7 @@ async function addMainIntakeForConfigProject() {
   }
 }
 
-async function saveMainIntakeMappingForProject(projectName, deviceIds, mainIntakeId) {
+async function saveMainIntakeMappingForProject(projectName, deviceIds, mainIntakeId, side = "") {
   const safeProjectName = String(projectName || "").trim();
   const safeDeviceIds = (Array.isArray(deviceIds) ? deviceIds : [])
     .map((deviceId) => String(deviceId || "").trim())
@@ -1152,6 +1174,7 @@ async function saveMainIntakeMappingForProject(projectName, deviceIds, mainIntak
     body: {
       deviceIds: safeDeviceIds,
       mainIntakeId: String(mainIntakeId || "").trim() || null,
+      side: normalizeElectricalSide(side) || null,
     },
   });
   setProjectSubstationConfig(
@@ -1205,6 +1228,36 @@ function buildMainIntakeOptionMarkup(projectName, selectedMainIntakeId = "") {
   return options.join("");
 }
 
+function buildElectricalSideOptionMarkup(selectedSide = "") {
+  const safeSelectedSide = normalizeElectricalSide(selectedSide);
+  return [
+    '<option value="">Unspecified</option>',
+    ...ELECTRICAL_SIDES.map(
+      (side) => `<option value="${side}"${side === safeSelectedSide ? " selected" : ""}>${side}</option>`
+    ),
+  ].join("");
+}
+
+function summarizeAssignmentSides(assignments, assignmentKey, groupId) {
+  const matchingAssignments = Object.values(assignments).filter(
+    (assignment) => String(assignment?.[assignmentKey] || "") === String(groupId || "")
+  );
+  const counts = matchingAssignments.reduce(
+    (result, assignment) => {
+      const side = normalizeElectricalSide(assignment?.side);
+      result[side || "unspecified"] += 1;
+      return result;
+    },
+    { HT: 0, LV: 0, unspecified: 0 }
+  );
+  const sideSummary = [
+    counts.HT ? `${counts.HT} HT` : "",
+    counts.LV ? `${counts.LV} LV` : "",
+    counts.unspecified ? `${counts.unspecified} unspecified` : "",
+  ].filter(Boolean);
+  return `${matchingAssignments.length} device(s) mapped${sideSummary.length ? ` (${sideSummary.join(", ")})` : ""}`;
+}
+
 function renderSubstationControls() {
   const substations = getProjectSubstations(state.configProjectName);
   const mainIntakes = getProjectMainIntakes(state.configProjectName);
@@ -1251,16 +1304,15 @@ function renderSubstationControls() {
   if (substations.length) {
     const assignments = getProjectDeviceAssignments(state.configProjectName);
     substations.forEach((substation) => {
-      const assignedDeviceCount = Object.values(assignments).filter(
-        (value) => String(value?.substationId || "") === String(substation?.id || "")
-      ).length;
       const row = document.createElement("div");
       row.className = "substation-list-row";
 
       const text = document.createElement("div");
       text.innerHTML = `
         <div class="config-device-name">${escapeHtml(substation?.name || "")}</div>
-        <div class="config-device-subtext">${assignedDeviceCount} device(s) mapped</div>
+        <div class="config-device-subtext">${escapeHtml(
+          summarizeAssignmentSides(assignments, "substationId", substation?.id)
+        )}</div>
       `;
 
       const removeButton = document.createElement("button");
@@ -1287,12 +1339,11 @@ function renderSubstationControls() {
     row.className = "main-intake-row";
 
     const text = document.createElement("div");
-    const assignedDeviceCount = Object.values(mainIntakeAssignments).filter(
-      (value) => String(value?.mainIntakeId || "") === String(mainIntake?.id || "")
-    ).length;
     text.innerHTML = `
       <div class="config-device-name">${escapeHtml(mainIntake?.name || "")}</div>
-      <div class="config-device-subtext">${assignedDeviceCount} device(s) mapped</div>
+      <div class="config-device-subtext">${escapeHtml(
+        summarizeAssignmentSides(mainIntakeAssignments, "mainIntakeId", mainIntake?.id)
+      )}</div>
     `;
 
     const removeButton = document.createElement("button");
@@ -1345,7 +1396,7 @@ async function addSubstationForConfigProject() {
   }
 }
 
-async function assignDevicesToProjectSubstation(projectName, deviceIds, substationId = "") {
+async function assignDevicesToProjectSubstation(projectName, deviceIds, substationId = "", side = "") {
   const safeProjectName = String(projectName || "").trim();
   const safeDeviceIds = (Array.isArray(deviceIds) ? deviceIds : [])
     .map((deviceId) => String(deviceId || "").trim())
@@ -1359,6 +1410,7 @@ async function assignDevicesToProjectSubstation(projectName, deviceIds, substati
     body: {
       deviceIds: safeDeviceIds,
       substationId: String(substationId || "").trim() || null,
+      side: normalizeElectricalSide(side) || null,
     },
   });
   setProjectSubstationConfig(
@@ -1380,8 +1432,13 @@ async function assignSelectedDevicesToSubstation() {
   }
 
   const selectedSubstationId = String(substationAssignmentSelect?.value || "").trim();
+  const selectedSide = normalizeElectricalSide(substationSideSelect?.value);
   if (!selectedSubstationId) {
     setStatus("Choose a substation before assigning the selected devices.", true);
+    return;
+  }
+  if (!selectedSide) {
+    setStatus("Choose an HT or LV side before assigning the selected devices.", true);
     return;
   }
 
@@ -1389,11 +1446,14 @@ async function assignSelectedDevicesToSubstation() {
     const mappedCount = await assignDevicesToProjectSubstation(
       state.configProjectName,
       [...state.configSelectedDeviceIds],
-      selectedSubstationId
+      selectedSubstationId,
+      selectedSide
     );
     const selectedSubstation = getProjectSubstationById(state.configProjectName, selectedSubstationId);
     renderConfigPage();
-    setStatus(`Mapped ${mappedCount} device(s) to "${selectedSubstation?.name || selectedSubstationId}".`);
+    setStatus(
+      `Mapped ${mappedCount} device(s) to "${selectedSubstation?.name || selectedSubstationId}" (${selectedSide}).`
+    );
   } catch (error) {
     setStatus(`Failed to map devices. ${error.message}`, true);
   }
@@ -1433,8 +1493,13 @@ async function assignSelectedDevicesToMainIntake() {
   }
 
   const selectedMainIntakeId = String(mainIntakeAssignmentSelect?.value || "").trim();
+  const selectedSide = normalizeElectricalSide(mainIntakeSideSelect?.value);
   if (!selectedMainIntakeId) {
     setStatus("Choose a main intake before assigning the selected devices.", true);
+    return;
+  }
+  if (!selectedSide) {
+    setStatus("Choose an HT or LV side before assigning the selected devices.", true);
     return;
   }
 
@@ -1442,12 +1507,13 @@ async function assignSelectedDevicesToMainIntake() {
     const mappedCount = await saveMainIntakeMappingForProject(
       state.configProjectName,
       [...state.configSelectedDeviceIds],
-      selectedMainIntakeId
+      selectedMainIntakeId,
+      selectedSide
     );
     const selectedMainIntake = getProjectMainIntakeById(state.configProjectName, selectedMainIntakeId);
     renderConfigPage();
     setStatus(
-      `Mapped ${mappedCount} device(s) to main intake "${selectedMainIntake?.name || selectedMainIntakeId}".`
+      `Mapped ${mappedCount} device(s) to main intake "${selectedMainIntake?.name || selectedMainIntakeId}" (${selectedSide}).`
     );
   } catch (error) {
     setStatus(`Failed to map main intake devices. ${error.message}`, true);
@@ -1605,7 +1671,7 @@ function getFilteredConfigDevices() {
   const searchFilter = String(state.configDeviceSearch || "").trim().toLowerCase();
   return (Array.isArray(state.configDevices) ? state.configDevices : []).filter((device) => {
     const deviceText =
-      `${device?.name || ""} ${device?.devid || ""} ${device?.customLabel || ""} ${getDeviceSite(device)} ${getProjectAssignedMainIntake(state.configProjectName, device?.devid)}`.toLowerCase();
+      `${device?.name || ""} ${device?.devid || ""} ${device?.customLabel || ""} ${getDeviceSite(device)} ${getProjectAssignedSubstationSide(state.configProjectName, device?.devid)} ${getProjectAssignedMainIntake(state.configProjectName, device?.devid)} ${getProjectAssignedMainIntakeSide(state.configProjectName, device?.devid)}`.toLowerCase();
     return !searchFilter || deviceText.includes(searchFilter);
   });
 }
@@ -1670,12 +1736,16 @@ function renderConfigDeviceList() {
     });
     labelField.appendChild(labelInput);
 
-    const mappingField = document.createElement("label");
+    const mappingField = document.createElement("div");
     mappingField.className = "config-device-mapping";
-    mappingField.innerHTML = `<span class="field-label">Substation</span>`;
+    mappingField.innerHTML = `<span class="field-label">Substation / Side</span>`;
+
+    const mappingControls = document.createElement("span");
+    mappingControls.className = "mapping-control-pair";
 
     const mappingSelect = document.createElement("select");
     mappingSelect.className = "input-control";
+    mappingSelect.setAttribute("aria-label", "Substation");
     mappingSelect.innerHTML = buildSubstationOptionMarkup(
       state.configProjectName,
       getProjectAssignedSubstationId(state.configProjectName, device.devid)
@@ -1683,7 +1753,12 @@ function renderConfigDeviceList() {
     mappingSelect.addEventListener("change", async (event) => {
       const nextSubstationId = String(event.target.value || "").trim();
       try {
-        await assignDevicesToProjectSubstation(state.configProjectName, [device.devid], nextSubstationId);
+        await assignDevicesToProjectSubstation(
+          state.configProjectName,
+          [device.devid],
+          nextSubstationId,
+          nextSubstationId ? substationDeviceSideSelect.value : ""
+        );
         const nextSubstation = getProjectSubstationById(state.configProjectName, nextSubstationId);
         renderConfigPage();
         setStatus(
@@ -1696,14 +1771,50 @@ function renderConfigDeviceList() {
         renderConfigPage();
       }
     });
-    mappingField.appendChild(mappingSelect);
 
-    const mainIntakeField = document.createElement("label");
+    const substationDeviceSideSelect = document.createElement("select");
+    substationDeviceSideSelect.className = "input-control";
+    substationDeviceSideSelect.setAttribute("aria-label", "Substation electrical side");
+    substationDeviceSideSelect.innerHTML = buildElectricalSideOptionMarkup(
+      getProjectAssignedSubstationSide(state.configProjectName, device.devid)
+    );
+    substationDeviceSideSelect.addEventListener("change", async (event) => {
+      const substationId = String(mappingSelect.value || "").trim();
+      if (!substationId) {
+        event.target.value = "";
+        setStatus("Assign a substation before selecting its electrical side.", true);
+        return;
+      }
+      try {
+        await assignDevicesToProjectSubstation(
+          state.configProjectName,
+          [device.devid],
+          substationId,
+          event.target.value
+        );
+        renderConfigPage();
+        setStatus(
+          `Set ${device.name || device.devid} to ${normalizeElectricalSide(event.target.value) || "an unspecified side"}.`
+        );
+      } catch (error) {
+        setStatus(`Failed to update substation side. ${error.message}`, true);
+        renderConfigPage();
+      }
+    });
+    mappingControls.appendChild(mappingSelect);
+    mappingControls.appendChild(substationDeviceSideSelect);
+    mappingField.appendChild(mappingControls);
+
+    const mainIntakeField = document.createElement("div");
     mainIntakeField.className = "config-device-mapping";
-    mainIntakeField.innerHTML = `<span class="field-label">Main Intake</span>`;
+    mainIntakeField.innerHTML = `<span class="field-label">Main Intake / Side</span>`;
+
+    const mainIntakeControls = document.createElement("span");
+    mainIntakeControls.className = "mapping-control-pair";
 
     const mainIntakeSelect = document.createElement("select");
     mainIntakeSelect.className = "input-control";
+    mainIntakeSelect.setAttribute("aria-label", "Main intake");
     mainIntakeSelect.innerHTML = buildMainIntakeOptionMarkup(
       state.configProjectName,
       getProjectAssignedMainIntakeId(state.configProjectName, device.devid)
@@ -1711,7 +1822,12 @@ function renderConfigDeviceList() {
     mainIntakeSelect.addEventListener("change", async (event) => {
       const nextMainIntakeId = String(event.target.value || "").trim();
       try {
-        await saveMainIntakeMappingForProject(state.configProjectName, [device.devid], nextMainIntakeId);
+        await saveMainIntakeMappingForProject(
+          state.configProjectName,
+          [device.devid],
+          nextMainIntakeId,
+          nextMainIntakeId ? mainIntakeDeviceSideSelect.value : ""
+        );
         const nextMainIntake = getProjectMainIntakeById(state.configProjectName, nextMainIntakeId);
         renderConfigPage();
         setStatus(
@@ -1724,7 +1840,39 @@ function renderConfigDeviceList() {
         renderConfigPage();
       }
     });
-    mainIntakeField.appendChild(mainIntakeSelect);
+
+    const mainIntakeDeviceSideSelect = document.createElement("select");
+    mainIntakeDeviceSideSelect.className = "input-control";
+    mainIntakeDeviceSideSelect.setAttribute("aria-label", "Main intake electrical side");
+    mainIntakeDeviceSideSelect.innerHTML = buildElectricalSideOptionMarkup(
+      getProjectAssignedMainIntakeSide(state.configProjectName, device.devid)
+    );
+    mainIntakeDeviceSideSelect.addEventListener("change", async (event) => {
+      const mainIntakeId = String(mainIntakeSelect.value || "").trim();
+      if (!mainIntakeId) {
+        event.target.value = "";
+        setStatus("Assign a main intake before selecting its electrical side.", true);
+        return;
+      }
+      try {
+        await saveMainIntakeMappingForProject(
+          state.configProjectName,
+          [device.devid],
+          mainIntakeId,
+          event.target.value
+        );
+        renderConfigPage();
+        setStatus(
+          `Set ${device.name || device.devid} to ${normalizeElectricalSide(event.target.value) || "an unspecified side"}.`
+        );
+      } catch (error) {
+        setStatus(`Failed to update main intake side. ${error.message}`, true);
+        renderConfigPage();
+      }
+    });
+    mainIntakeControls.appendChild(mainIntakeSelect);
+    mainIntakeControls.appendChild(mainIntakeDeviceSideSelect);
+    mainIntakeField.appendChild(mainIntakeControls);
 
     row.appendChild(checkbox);
     row.appendChild(meta);
@@ -2282,6 +2430,11 @@ async function loadProjects() {
       throw new Error("Projects API returned no usable records.");
     }
 
+    const linkedProject = findProjectByReference(REPORT_LINK_REQUEST?.project);
+    if (linkedProject) {
+      state.projectName = linkedProject.pname;
+    }
+
     renderProjectOptions();
     const exists = state.projects.some((project) => project.pname === state.projectName);
     if (!state.projectName || !exists) {
@@ -2311,6 +2464,170 @@ async function loadProjects() {
     await loadConfigDevices();
     renderDeviceTables([]);
     setStatus(`Projects API unavailable (${error.message}). Loaded Demo Project.`);
+  }
+}
+
+function parseReportLinkRequest(search) {
+  const params = new URLSearchParams(String(search || ""));
+  const group = String(params.get("group") || "").trim();
+  if (!group) {
+    return null;
+  }
+
+  const rawGroupType = String(params.get("groupType") || params.get("group-type") || "")
+    .trim()
+    .toLowerCase();
+  let groupType = "";
+  if (["substation", "ss"].includes(rawGroupType)) {
+    groupType = "substation";
+  } else if (["main-intake", "main_intake", "mainintake", "intake"].includes(rawGroupType)) {
+    groupType = "main-intake";
+  }
+
+  const autorunValue = String(params.get("autorun") || "").trim().toLowerCase();
+  return {
+    project: String(params.get("project") || "").trim(),
+    group,
+    groupType,
+    invalidGroupType: Boolean(rawGroupType && !groupType),
+    side: normalizeElectricalSide(params.get("side")),
+    rawSide: String(params.get("side") || "").trim(),
+    range: String(params.get("range") || "").trim().toLowerCase(),
+    startDate: String(params.get("startDate") || params.get("start") || "").trim(),
+    endDate: String(params.get("endDate") || params.get("end") || "").trim(),
+    type: String(params.get("type") || "").trim().toLowerCase(),
+    autorun: ["1", "true", "yes"].includes(autorunValue),
+  };
+}
+
+function findProjectByReference(projectReference) {
+  const reference = String(projectReference || "").trim().toLowerCase();
+  if (!reference) {
+    return null;
+  }
+  return (
+    state.projects.find(
+      (project) =>
+        String(project?.pname || "").trim().toLowerCase() === reference ||
+        String(project?.name || "").trim().toLowerCase() === reference
+    ) || null
+  );
+}
+
+function findReportLinkGroups(request) {
+  const reference = String(request?.group || "").trim().toLowerCase();
+  const candidates = [];
+  if (!request?.groupType || request.groupType === "substation") {
+    getProjectSubstations(state.projectName).forEach((group) => {
+      candidates.push({ ...group, groupType: "substation" });
+    });
+  }
+  if (!request?.groupType || request.groupType === "main-intake") {
+    getProjectMainIntakes(state.projectName).forEach((group) => {
+      candidates.push({ ...group, groupType: "main-intake" });
+    });
+  }
+  return candidates.filter(
+    (group) =>
+      String(group?.id || "").trim().toLowerCase() === reference ||
+      String(group?.name || "").trim().toLowerCase() === reference
+  );
+}
+
+async function applyReportLinkRequest(request) {
+  if (!request) {
+    return;
+  }
+  if (request.invalidGroupType) {
+    setStatus('Report link groupType must be "substation" or "main-intake".', true);
+    return;
+  }
+  if (request.project && !findProjectByReference(request.project)) {
+    setStatus(`Report link project "${request.project}" was not found.`, true);
+    return;
+  }
+  if (!request.side) {
+    setStatus(
+      request.rawSide
+        ? `Report link side "${request.rawSide}" is invalid. Use HT or LV.`
+        : "Report link is missing the required HT or LV side.",
+      true
+    );
+    return;
+  }
+
+  const matchingGroups = findReportLinkGroups(request);
+  if (!matchingGroups.length) {
+    setStatus(`Report link group "${request.group}" was not found in the selected project.`, true);
+    return;
+  }
+  if (matchingGroups.length > 1) {
+    setStatus(
+      `Report link group "${request.group}" is ambiguous. Add groupType=substation or groupType=main-intake.`,
+      true
+    );
+    return;
+  }
+
+  const group = matchingGroups[0];
+  const assignments =
+    group.groupType === "main-intake"
+      ? getProjectMainIntakeAssignments(state.projectName)
+      : getProjectDeviceAssignments(state.projectName);
+  const assignmentGroupKey = group.groupType === "main-intake" ? "mainIntakeId" : "substationId";
+  const matchingDeviceIds = state.devices
+    .filter((device) => {
+      const assignment = assignments[String(device?.devid || "")];
+      return (
+        String(assignment?.[assignmentGroupKey] || "") === String(group.id || "") &&
+        normalizeElectricalSide(assignment?.side) === request.side
+      );
+    })
+    .map((device) => String(device.devid));
+
+  if (!matchingDeviceIds.length) {
+    setStatus(
+      `No ${request.side} devices are assigned to ${group.name || request.group}.`,
+      true
+    );
+    return;
+  }
+
+  const allowedRanges = new Set(["today", "yesterday", "last7", "last30", "last365", "lastyear", "custom"]);
+  if (request.range) {
+    if (!allowedRanges.has(request.range)) {
+      setStatus(`Report link range "${request.range}" is invalid.`, true);
+      return;
+    }
+    state.selectedTimeRange = request.range;
+    timeRangeSelect.value = request.range;
+    toggleCustomDateRange(request.range === "custom");
+  }
+  if (request.range === "custom") {
+    customStartDate.value = request.startDate;
+    customEndDate.value = request.endDate;
+    if (!request.startDate || !request.endDate) {
+      setStatus("Custom report links require both startDate and endDate.", true);
+      return;
+    }
+  }
+  if (request.type) {
+    if (!["histvalues", "hist-events"].includes(request.type)) {
+      setStatus(`Report link type "${request.type}" is invalid.`, true);
+      return;
+    }
+    state.selectedType = request.type;
+    typeSelect.value = request.type;
+  }
+
+  state.selectedDeviceIds = new Set(matchingDeviceIds);
+  renderDeviceOptions();
+  setStatus(
+    `Loaded ${matchingDeviceIds.length} ${request.side} device(s) from ${group.name || request.group}.`
+  );
+
+  if (request.autorun) {
+    await onGenerateReport();
   }
 }
 
@@ -2488,6 +2805,14 @@ function isDemoDeviceMostlyCompliant(deviceId) {
     return false;
   }
   return deviceNumber <= 5;
+}
+
+function isDemoDeviceWarningBiased(deviceId) {
+  const deviceNumber = getDemoDeviceNumber(deviceId);
+  if (!Number.isFinite(deviceNumber)) {
+    return false;
+  }
+  return deviceNumber >= 3 && deviceNumber <= 5;
 }
 
 function renderProjectOptions() {
@@ -2907,6 +3232,7 @@ function buildDemoNominalReadings(deviceIds, filters) {
   deviceIds.forEach((deviceId) => {
     const deviceSeed = hashText(deviceId);
     const mostlyCompliantDevice = isDemoDeviceMostlyCompliant(deviceId);
+    const warningBiasedDevice = isDemoDeviceWarningBiased(deviceId);
     const deviceVoltageClass = normalizeVoltageClass(
       deviceVoltageClassById.get(String(deviceId))
     );
@@ -2924,12 +3250,22 @@ function buildDemoNominalReadings(deviceIds, filters) {
           const seed = (deviceSeed + (timeIndex + 1) * 97 + (metricIndex + 1) * 31 + (phaseIndex + 1) * 17) % 1000;
           const isVoltage = targetColumn.startsWith("V");
           const step = (seed % 100) / 100;
+          const prefersHighEdge = (seed + timeIndex) % 2 === 0;
           const avg = isVoltage
-            ? voltageTolerance.min + voltageRange * (0.42 + step * 0.16)
-            : 4.8 + step * 0.35;
+            ? warningBiasedDevice
+              ? voltageTolerance.min +
+                voltageRange * (prefersHighEdge ? 0.84 + step * 0.05 : 0.11 + step * 0.05)
+              : voltageTolerance.min + voltageRange * (0.42 + step * 0.16)
+            : warningBiasedDevice
+              ? 4.05 + step * 0.45
+              : 4.8 + step * 0.35;
           const band = isVoltage
-            ? voltageRange * (0.015 + ((seed % 3) / 200))
-            : 0.08 + (seed % 4) / 100;
+            ? warningBiasedDevice
+              ? voltageRange * (0.006 + ((seed % 2) / 500))
+              : voltageRange * (0.015 + ((seed % 3) / 200))
+            : warningBiasedDevice
+              ? 0.03 + (seed % 2) / 100
+              : 0.08 + (seed % 4) / 100;
           let min = avg - band;
           let max = avg + band;
 
@@ -2953,6 +3289,7 @@ function buildDemoNominalReadings(deviceIds, filters) {
         timeIndex,
         {
           mostlyCompliantDevice,
+          warningBiasedDevice,
           forceNonCompliant: shouldInjectForcedNonCompliant,
         }
       );
@@ -2970,7 +3307,7 @@ function buildDemoNominalReadings(deviceIds, filters) {
 function buildDemoExtraNominalMetrics(
   deviceSeed,
   timeIndex,
-  { mostlyCompliantDevice = false, forceNonCompliant = false } = {}
+  { mostlyCompliantDevice = false, warningBiasedDevice = false, forceNonCompliant = false } = {}
 ) {
   const baseSeed = (deviceSeed + (timeIndex + 1) * 113) % 1000;
   const failingMetricPairs = [
@@ -2993,32 +3330,45 @@ function buildDemoExtraNominalMetrics(
   const failedMetrics = forceNonCompliant
     ? new Set(failingMetricPairs[deviceSeed % failingMetricPairs.length])
     : new Set();
+  const prefersHighEdge = (baseSeed + timeIndex) % 2 === 0;
 
   const topOilRaw = failedMetrics.has("TOP_OIL_TEMPERATURE")
     ? 96 + ((baseSeed % 20) / 10)
-    : 58 + ((baseSeed % 160) / 10);
+    : warningBiasedDevice
+      ? (prefersHighEdge ? 73 + ((baseSeed % 40) / 10) : 8 + ((baseSeed % 60) / 10))
+      : 58 + ((baseSeed % 160) / 10);
   const windingRaw = failedMetrics.has("WINDING_TEMPERATURE")
     ? 124 + ((baseSeed % 20) / 10)
-    : 72 + ((baseSeed % 180) / 10);
+    : warningBiasedDevice
+      ? (prefersHighEdge ? 97 + ((baseSeed % 70) / 10) : 12 + ((baseSeed % 80) / 10))
+      : 72 + ((baseSeed % 180) / 10);
   const loadPercentRaw = failedMetrics.has("LOAD_PERCENT")
     ? 104 + ((baseSeed % 30) / 10)
-    : 48 + ((baseSeed % 340) / 10);
+    : warningBiasedDevice
+      ? (prefersHighEdge ? 82 + ((baseSeed % 90) / 10) : 8 + ((baseSeed % 100) / 10))
+      : 48 + ((baseSeed % 340) / 10);
   const vUnbalanceRaw = failedMetrics.has("V_UNBALANCE")
     ? 2.35 + ((baseSeed % 20) / 100)
-    : 0.45 + ((baseSeed % 95) / 100);
+    : warningBiasedDevice
+      ? (prefersHighEdge ? 1.63 + ((baseSeed % 12) / 100) : 0.08 + ((baseSeed % 20) / 100))
+      : 0.45 + ((baseSeed % 95) / 100);
   const aUnbalanceRaw = failedMetrics.has("A_UNBALANCE")
     ? 5.40 + ((baseSeed % 40) / 100)
-    : 1.20 + ((baseSeed % 250) / 100);
+    : warningBiasedDevice
+      ? (prefersHighEdge ? 4.05 + ((baseSeed % 60) / 100) : 0.20 + ((baseSeed % 70) / 100))
+      : 1.20 + ((baseSeed % 250) / 100);
   const powerFactorRaw = failedMetrics.has("POWER_FACTOR")
     ? 0.84 + ((baseSeed % 20) / 1000)
-    : 0.95 + ((baseSeed % 35) / 1000);
+    : warningBiasedDevice
+      ? (prefersHighEdge ? 0.981 + ((baseSeed % 8) / 1000) : 0.904 + ((baseSeed % 12) / 1000))
+      : 0.95 + ((baseSeed % 35) / 1000);
 
-  const topOilBand = failedMetrics.has("TOP_OIL_TEMPERATURE") ? 4.8 : 1.6;
-  const windingBand = failedMetrics.has("WINDING_TEMPERATURE") ? 6.2 : 2.1;
-  const loadPercentBand = failedMetrics.has("LOAD_PERCENT") ? 8.5 : 3.5;
-  const vUnbalanceBand = failedMetrics.has("V_UNBALANCE") ? 0.4 : 0.15;
-  const aUnbalanceBand = failedMetrics.has("A_UNBALANCE") ? 0.75 : 0.35;
-  const powerFactorBand = failedMetrics.has("POWER_FACTOR") ? 0.03 : 0.01;
+  const topOilBand = failedMetrics.has("TOP_OIL_TEMPERATURE") ? 4.8 : warningBiasedDevice ? 0.9 : 1.6;
+  const windingBand = failedMetrics.has("WINDING_TEMPERATURE") ? 6.2 : warningBiasedDevice ? 1.2 : 2.1;
+  const loadPercentBand = failedMetrics.has("LOAD_PERCENT") ? 8.5 : warningBiasedDevice ? 1.8 : 3.5;
+  const vUnbalanceBand = failedMetrics.has("V_UNBALANCE") ? 0.4 : warningBiasedDevice ? 0.06 : 0.15;
+  const aUnbalanceBand = failedMetrics.has("A_UNBALANCE") ? 0.75 : warningBiasedDevice ? 0.12 : 0.35;
+  const powerFactorBand = failedMetrics.has("POWER_FACTOR") ? 0.03 : warningBiasedDevice ? 0.004 : 0.01;
 
   return {
     TOP_OIL_TEMPERATURE: topOilRaw.toFixed(2),
@@ -4504,9 +4854,13 @@ function evaluateVoltageContextCompliance(voltageContext, parameterLabel) {
     (numericValue >= tolerance.min && numericValue <= tolerance.max);
   const pass = minPass && maxPass && valuePass;
   if (pass) {
+    const warning = [numericValue, minNumeric, maxNumeric].some((value) =>
+      isValueWithinToleranceWarningBand(value, tolerance)
+    );
     return {
       available: true,
       pass: true,
+      warning,
       failedChannels: [],
       failedDetails: [],
     };
@@ -4545,6 +4899,7 @@ function evaluateVoltageContextCompliance(voltageContext, parameterLabel) {
   return {
     available: true,
     pass: false,
+    warning: false,
     failedChannels: [],
     failedDetails,
   };
@@ -4883,9 +5238,13 @@ function evaluateSingleMetricCompliance(latestRow, metricKey, parameterLabel, co
     (numericValue >= tolerance.min && numericValue <= tolerance.max);
   const pass = minPass && maxPass && valuePass;
   if (pass) {
+    const warning = [numericValue, minNumeric, maxNumeric].some((value) =>
+      isValueWithinToleranceWarningBand(value, tolerance)
+    );
     return {
       available: true,
       pass: true,
+      warning,
       failedChannels: [],
       failedDetails: [],
     };
@@ -4924,29 +5283,21 @@ function evaluateSingleMetricCompliance(latestRow, metricKey, parameterLabel, co
   return {
     available: true,
     pass: false,
+    warning: false,
     failedChannels: [],
     failedDetails,
   };
 }
 
 function getMetricCellDisplayValue(complianceResult, fallbackValue = "", options = {}) {
-  const showValueWhenCompliant = Boolean(options?.showValueWhenCompliant);
   if (!complianceResult?.available) {
     return "N/A";
   }
-  if (complianceResult.pass) {
-    const valueText = String(fallbackValue ?? "").trim();
-    return showValueWhenCompliant ? valueText || "OK" : "OK";
-  }
-  const failedDetail = Array.isArray(complianceResult?.failedDetails)
-    ? complianceResult.failedDetails[0]
-    : null;
-  const failedDetailText = formatFailedDetailForMetricCell(failedDetail);
-  if (failedDetailText) {
-    return failedDetailText;
-  }
   const valueText = String(fallbackValue ?? "").trim();
-  return valueText || "Non-Comply";
+  if (complianceResult.pass) {
+    return valueText || "N/A";
+  }
+  return valueText || "N/A";
 }
 
 function formatFailedDetailForMetricCell(detail) {
@@ -4972,7 +5323,30 @@ function getComplianceStatusClass(complianceResult) {
   if (!complianceResult?.available) {
     return "";
   }
-  return complianceResult.pass ? "value-pass" : "value-fail";
+  if (!complianceResult.pass) {
+    return "value-fail";
+  }
+  return complianceResult.warning ? "value-warn" : "value-pass";
+}
+
+function isValueWithinToleranceWarningBand(value, tolerance, edgeBandRatio = 0.2) {
+  const numericValue = Number(value);
+  if (
+    !Number.isFinite(numericValue) ||
+    !Number.isFinite(tolerance?.min) ||
+    !Number.isFinite(tolerance?.max)
+  ) {
+    return false;
+  }
+
+  const span = tolerance.max - tolerance.min;
+  if (!Number.isFinite(span) || span <= 0) {
+    return false;
+  }
+
+  const lowerWarningLimit = tolerance.min + span * edgeBandRatio;
+  const upperWarningLimit = tolerance.max - span * edgeBandRatio;
+  return numericValue <= lowerWarningLimit || numericValue >= upperWarningLimit;
 }
 
 function getMetricUnitForParameter(parameterLabel) {
@@ -6290,6 +6664,13 @@ function getConditionalCellStyle(cssClassName) {
       excelFont: "FF166534",
       pdfFill: [237, 253, 243],
       pdfText: [22, 101, 52],
+      bold: true,
+    },
+    "value-warn": {
+      excelFill: "FFFFF4E5",
+      excelFont: "FFB54708",
+      pdfFill: [255, 244, 229],
+      pdfText: [181, 71, 8],
       bold: true,
     },
     "value-fail": {

@@ -4,6 +4,8 @@ const os = require("os");
 const path = require("path");
 const { Readable } = require("stream");
 
+loadEnvironmentFile(process.env.SERVICE_ENV_FILE);
+
 const PORT = Number(process.env.PORT || 5500);
 const API_ORIGIN = process.env.API_ORIGIN || "http://gridvisdemo.site:8080";
 const STATIC_ROOT = process.cwd();
@@ -27,6 +29,44 @@ let pgModule = null;
 let dbPool = null;
 let dbInitPromise = null;
 let localMetadataWriteQueue = Promise.resolve();
+
+function loadEnvironmentFile(filePath) {
+  const safePath = String(filePath || "").trim();
+  if (!safePath) {
+    return;
+  }
+
+  let contents;
+  try {
+    contents = fs.readFileSync(path.resolve(safePath), "utf8");
+  } catch (error) {
+    throw new Error(`Unable to load service environment file "${safePath}": ${error.message}`);
+  }
+
+  contents.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      return;
+    }
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      return;
+    }
+    const key = trimmed.slice(0, separatorIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] !== undefined) {
+      return;
+    }
+    let value = trimmed.slice(separatorIndex + 1).trim();
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  });
+}
 
 function send(res, status, message) {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
@@ -263,6 +303,20 @@ function normalizeLocalMetadataStore(store) {
   };
 }
 
+function normalizeElectricalSide(value) {
+  const side = String(value || "").trim().toUpperCase();
+  return side === "HT" || side === "LV" ? side : "";
+}
+
+function validateElectricalSide(value) {
+  const rawSide = String(value || "").trim();
+  const side = normalizeElectricalSide(rawSide);
+  if (rawSide && !side) {
+    throw new Error('Side must be either "HT" or "LV".');
+  }
+  return side;
+}
+
 async function readLocalMetadataStore() {
   try {
     const text = await fs.promises.readFile(LOCAL_METADATA_PATH, "utf8");
@@ -379,10 +433,15 @@ async function initializeDatabase() {
           project_name TEXT NOT NULL,
           device_id TEXT NOT NULL,
           substation_id BIGINT NOT NULL REFERENCES substations(id) ON DELETE CASCADE,
+          side TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (project_name, device_id)
         );
+      `);
+      await pool.query(`
+        ALTER TABLE device_substation_mappings
+          ADD COLUMN IF NOT EXISTS side TEXT;
       `);
       await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_substations_project_name
@@ -406,10 +465,15 @@ async function initializeDatabase() {
           project_name TEXT NOT NULL,
           device_id TEXT NOT NULL,
           main_intake_id BIGINT NOT NULL REFERENCES main_intakes(id) ON DELETE CASCADE,
+          side TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (project_name, device_id)
         );
+      `);
+      await pool.query(`
+        ALTER TABLE device_main_intake_mappings
+          ADD COLUMN IF NOT EXISTS side TEXT;
       `);
       await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_main_intakes_project_name
@@ -485,6 +549,7 @@ function normalizeProjectSubstationPayload(
     deviceAssignments: (Array.isArray(assignments) ? assignments : []).map((row) => ({
       deviceId: String(row.device_id),
       substationId: String(row.substation_id),
+      side: normalizeElectricalSide(row.side),
     })),
     deviceLabels: (Array.isArray(deviceLabels) ? deviceLabels : []).map((row) => ({
       deviceId: String(row.device_id),
@@ -498,6 +563,7 @@ function normalizeProjectSubstationPayload(
     mainIntakeAssignments: (Array.isArray(mainIntakeAssignments) ? mainIntakeAssignments : []).map((row) => ({
       deviceId: String(row.device_id),
       mainIntakeId: String(row.main_intake_id),
+      side: normalizeElectricalSide(row.side),
     })),
   };
 }
@@ -522,7 +588,7 @@ async function fetchProjectSubstationConfig(projectName) {
     ),
     pool.query(
       `
-        SELECT device_id, substation_id
+        SELECT device_id, substation_id, side
         FROM device_substation_mappings
         WHERE project_name = $1
         ORDER BY device_id;
@@ -549,7 +615,7 @@ async function fetchProjectSubstationConfig(projectName) {
     ),
     pool.query(
       `
-        SELECT device_id, main_intake_id
+        SELECT device_id, main_intake_id, side
         FROM device_main_intake_mappings
         WHERE project_name = $1
         ORDER BY device_id;
@@ -642,7 +708,7 @@ async function deleteSubstation(projectName, substationId) {
   return fetchProjectSubstationConfig(safeProjectName);
 }
 
-async function updateDeviceSubstationMappings(projectName, deviceIds, substationId) {
+async function updateDeviceSubstationMappings(projectName, deviceIds, substationId, side) {
   const safeProjectName = String(projectName || "").trim();
   const safeDeviceIds = Array.from(
     new Set(
@@ -652,6 +718,7 @@ async function updateDeviceSubstationMappings(projectName, deviceIds, substation
     )
   );
   const safeSubstationId = String(substationId || "").trim();
+  const safeSide = validateElectricalSide(side);
 
   if (!safeProjectName) {
     throw new Error("Project name is required.");
@@ -676,6 +743,7 @@ async function updateDeviceSubstationMappings(projectName, deviceIds, substation
           );
           if (existing) {
             existing.substation_id = safeSubstationId;
+            existing.side = safeSide;
             existing.updated_at = new Date().toISOString();
           } else {
             const now = new Date().toISOString();
@@ -683,6 +751,7 @@ async function updateDeviceSubstationMappings(projectName, deviceIds, substation
               project_name: safeProjectName,
               device_id: deviceId,
               substation_id: safeSubstationId,
+              side: safeSide,
               created_at: now,
               updated_at: now,
             });
@@ -720,14 +789,15 @@ async function updateDeviceSubstationMappings(projectName, deviceIds, substation
       for (const deviceId of safeDeviceIds) {
         await client.query(
           `
-            INSERT INTO device_substation_mappings (project_name, device_id, substation_id)
-            VALUES ($1, $2, $3::bigint)
+            INSERT INTO device_substation_mappings (project_name, device_id, substation_id, side)
+            VALUES ($1, $2, $3::bigint, $4)
             ON CONFLICT (project_name, device_id)
             DO UPDATE SET
               substation_id = EXCLUDED.substation_id,
+              side = EXCLUDED.side,
               updated_at = NOW();
           `,
-          [safeProjectName, deviceId, safeSubstationId]
+          [safeProjectName, deviceId, safeSubstationId, safeSide || null]
         );
       }
     } else {
@@ -893,7 +963,7 @@ async function deleteMainIntake(projectName, mainIntakeId) {
   return fetchProjectSubstationConfig(safeProjectName);
 }
 
-async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntakeId) {
+async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntakeId, side) {
   const safeProjectName = String(projectName || "").trim();
   const safeDeviceIds = Array.from(
     new Set(
@@ -903,6 +973,7 @@ async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntake
     )
   );
   const safeMainIntakeId = String(mainIntakeId || "").trim();
+  const safeSide = validateElectricalSide(side);
 
   if (!safeProjectName) {
     throw new Error("Project name is required.");
@@ -927,6 +998,7 @@ async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntake
           );
           if (existing) {
             existing.main_intake_id = safeMainIntakeId;
+            existing.side = safeSide;
             existing.updated_at = new Date().toISOString();
           } else {
             const now = new Date().toISOString();
@@ -934,6 +1006,7 @@ async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntake
               project_name: safeProjectName,
               device_id: deviceId,
               main_intake_id: safeMainIntakeId,
+              side: safeSide,
               created_at: now,
               updated_at: now,
             });
@@ -971,14 +1044,15 @@ async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntake
       for (const deviceId of safeDeviceIds) {
         await client.query(
           `
-            INSERT INTO device_main_intake_mappings (project_name, device_id, main_intake_id)
-            VALUES ($1, $2, $3::bigint)
+            INSERT INTO device_main_intake_mappings (project_name, device_id, main_intake_id, side)
+            VALUES ($1, $2, $3::bigint, $4)
             ON CONFLICT (project_name, device_id)
             DO UPDATE SET
               main_intake_id = EXCLUDED.main_intake_id,
+              side = EXCLUDED.side,
               updated_at = NOW();
           `,
-          [safeProjectName, deviceId, safeMainIntakeId]
+          [safeProjectName, deviceId, safeMainIntakeId, safeSide || null]
         );
       }
     } else {
@@ -1039,7 +1113,12 @@ async function handleAppApi(req, res) {
     sendJson(
       res,
       200,
-      await updateDeviceSubstationMappings(segments[1], body?.deviceIds, body?.substationId)
+      await updateDeviceSubstationMappings(
+        segments[1],
+        body?.deviceIds,
+        body?.substationId,
+        body?.side
+      )
     );
     return;
   }
@@ -1094,7 +1173,12 @@ async function handleAppApi(req, res) {
     sendJson(
       res,
       200,
-      await updateDeviceMainIntakeMappings(segments[1], body?.deviceIds, body?.mainIntakeId)
+      await updateDeviceMainIntakeMappings(
+        segments[1],
+        body?.deviceIds,
+        body?.mainIntakeId,
+        body?.side
+      )
     );
     return;
   }
@@ -1109,6 +1193,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    if (requestUrl.pathname === "/health" && (req.method === "GET" || req.method === "HEAD")) {
+      sendJson(res, 200, {
+        status: "ok",
+        persistence: useLocalMetadataStore() ? "json" : "postgres",
+      });
+      return;
+    }
+
     if (req.url.startsWith(`${APP_API_PREFIX}/`)) {
       await handleAppApi(req, res);
       return;
@@ -1139,3 +1232,39 @@ server.listen(PORT, () => {
       : `Serving app persistence endpoints at ${APP_API_PREFIX}/* using Postgres`
   );
 });
+
+let shutdownStarted = false;
+
+function shutdownServer(signal) {
+  if (shutdownStarted) {
+    return;
+  }
+  shutdownStarted = true;
+  console.log(`Received ${signal}. Shutting down...`);
+
+  const forceShutdownTimer = setTimeout(() => {
+    console.error("Graceful shutdown timed out. Closing remaining connections.");
+    if (typeof server.closeAllConnections === "function") {
+      server.closeAllConnections();
+    }
+    process.exit(1);
+  }, 15000);
+  forceShutdownTimer.unref();
+
+  server.close(async (serverError) => {
+    try {
+      if (dbPool) {
+        await dbPool.end();
+      }
+    } catch (databaseError) {
+      console.error(`Database shutdown failed: ${databaseError.message}`);
+      serverError = serverError || databaseError;
+    } finally {
+      clearTimeout(forceShutdownTimer);
+      process.exit(serverError ? 1 : 0);
+    }
+  });
+}
+
+process.on("SIGINT", () => shutdownServer("SIGINT"));
+process.on("SIGTERM", () => shutdownServer("SIGTERM"));

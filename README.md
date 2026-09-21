@@ -16,6 +16,8 @@
   - one column per time bucket in selected range
   - each cell = latest reading in that bucket
 - Export to `CSV`, `Excel (.xlsx)`, `PDF`
+- Project-scoped Substation/Main Intake groups with `HT` and `LV` device assignments
+- Dashboard deep links that select a saved group and side
 
 ## Files
 
@@ -42,6 +44,16 @@ npm start
 Then open:
 
 `http://localhost:5500`
+
+## Windows Service Package
+
+The application can be packaged as a self-contained Windows Service with a portable Node.js runtime and WinSW:
+
+```powershell
+npm run service:package
+```
+
+Installation, updating, rollback, configuration, and uninstall instructions are in [`service/README.md`](service/README.md).
 
 If the upstream REST API requires authentication, set one of these before starting:
 
@@ -93,6 +105,7 @@ Tables:
   - `project_name`
   - `device_id`
   - `substation_id`
+  - `side` (`HT` or `LV`)
 - `main_intakes`
   - `id`
   - `project_name`
@@ -101,6 +114,7 @@ Tables:
   - `project_name`
   - `device_id`
   - `main_intake_id`
+  - `side` (`HT` or `LV`)
 - `device_labels`
   - `project_name`
   - `device_id`
@@ -142,6 +156,31 @@ The app builds paths as:
 - `/{apiVersion}/projects/{pname}/devices`
 - `/{apiVersion}/projects/{pname}/devices/{devid}/histenergy`
 - `/{apiVersion}/projects/{pname}/devices/{devid}/hist/events`
+
+## Dashboard Report Links
+
+After assigning devices to a Substation or Main Intake and setting each assignment's electrical side, a dashboard can open a prefiltered report with:
+
+```text
+http://REPORT-SERVER:5500/?project=PROJECT&group=GROUP&groupType=substation&side=HT&range=today&autorun=1
+```
+
+Parameters:
+
+- `project`: project API name or display name
+- `group`: saved group ID or exact group name
+- `groupType`: `substation` or `main-intake`; optional when the group reference is unique
+- `side`: required; `HT` or `LV`
+- `range`: optional; `today`, `yesterday`, `last7`, `last30`, `last365`, `lastyear`, or `custom`
+- `startDate` and `endDate`: required for a `custom` range, in `YYYY-MM-DD` format
+- `type`: optional; `histvalues` or `hist-events`
+- `autorun=1`: optionally generate the report immediately after selecting devices
+
+Example:
+
+```text
+http://localhost:5500/?project=Electrica%20Perodua%202026&group=SS12&groupType=substation&side=HT&range=today&autorun=1
+```
 
 For `histenergy`, query parameters are sent as:
 

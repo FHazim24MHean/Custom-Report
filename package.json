@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "service:package": "powershell -NoProfile -ExecutionPolicy Bypass -File service/build-service-package.ps1"
   },
   "dependencies": {
     "pg": "^8.13.1"

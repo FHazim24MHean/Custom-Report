@@ -10,10 +10,14 @@ CREATE TABLE IF NOT EXISTS device_substation_mappings (
   project_name TEXT NOT NULL,
   device_id TEXT NOT NULL,
   substation_id BIGINT NOT NULL REFERENCES substations(id) ON DELETE CASCADE,
+  side TEXT CHECK (side IS NULL OR side IN ('HT', 'LV')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (project_name, device_id)
 );
+
+ALTER TABLE device_substation_mappings
+  ADD COLUMN IF NOT EXISTS side TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_substations_project_name
   ON substations(project_name);
@@ -33,10 +37,14 @@ CREATE TABLE IF NOT EXISTS device_main_intake_mappings (
   project_name TEXT NOT NULL,
   device_id TEXT NOT NULL,
   main_intake_id BIGINT NOT NULL REFERENCES main_intakes(id) ON DELETE CASCADE,
+  side TEXT CHECK (side IS NULL OR side IN ('HT', 'LV')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (project_name, device_id)
 );
+
+ALTER TABLE device_main_intake_mappings
+  ADD COLUMN IF NOT EXISTS side TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_main_intakes_project_name
   ON main_intakes(project_name);
