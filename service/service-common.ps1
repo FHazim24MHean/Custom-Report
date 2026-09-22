@@ -119,3 +119,36 @@ function Get-ConfiguredPort {
   }
   return 5500
 }
+
+function Set-ReportLoginCredential {
+  param(
+    [Parameter(Mandatory = $true)][string]$EnvironmentFile,
+    [Parameter(Mandatory = $true)][string]$NodePath,
+    [Parameter(Mandatory = $true)][string]$HashScript
+  )
+
+  $username = Read-Host "Report login username"
+  if ($username -notmatch '^[A-Za-z0-9._-]{1,64}$') {
+    throw "Username must be 1-64 letters, digits, dots, underscores, or hyphens."
+  }
+  $securePassword = Read-Host "Report login password (at least 12 characters)" -AsSecureString
+  $passwordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+  $previousOutputEncoding = $OutputEncoding
+  try {
+    $OutputEncoding = [Text.UTF8Encoding]::new($false)
+    $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPointer)
+    $hash = ($password | & $NodePath $HashScript)
+    if ($LASTEXITCODE -ne 0 -or $hash -notmatch '^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$') {
+      throw "Unable to create a password hash. Use at least 12 characters."
+    }
+  } finally {
+    $OutputEncoding = $previousOutputEncoding
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordPointer)
+    $password = $null
+  }
+
+  $content = Get-Content -LiteralPath $EnvironmentFile -Raw
+  $content = [regex]::Replace($content, '(?m)^REPORT_USERNAME=.*$', "REPORT_USERNAME=$username")
+  $content = [regex]::Replace($content, '(?m)^REPORT_PASSWORD_HASH=.*$', "REPORT_PASSWORD_HASH=$hash")
+  Write-Utf8FileWithoutBom -Path $EnvironmentFile -Content $content
+}

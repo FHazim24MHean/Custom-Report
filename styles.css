@@ -42,6 +42,11 @@ h1 {
   background: rgba(255, 255, 255, 0.8);
 }
 
+.logout-button {
+  float: right;
+  margin-bottom: 16px;
+}
+
 .page-switch-button {
   border: none;
   border-radius: 999px;

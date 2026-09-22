@@ -315,6 +315,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 function bindEvents() {
+  document.getElementById("logoutButton").addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    window.location.replace("/login.html");
+  });
   showReportPageButton.addEventListener("click", () => {
     state.activePage = "report";
     renderActivePage();

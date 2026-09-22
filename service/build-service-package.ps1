@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "1.0.0",
+  [string]$Version = "1.1.0",
   [string]$NodeVersion = "24.21.0",
   [string]$WinSWVersion = "2.12.0",
   [string]$OutputDirectory = "",
@@ -29,7 +29,7 @@ $payloadRuntime = Join-Path $OutputDirectory "payload\runtime"
 New-Item -ItemType Directory -Path $payloadApp -Force | Out-Null
 New-Item -ItemType Directory -Path $payloadRuntime -Force | Out-Null
 
-foreach ($file in @("server.js", "app.js", "index.html", "styles.css", "package.json", "package-lock.json", "README.md")) {
+foreach ($file in @("server.js", "app.js", "index.html", "styles.css", "login.html", "login.css", "login.js", "package.json", "package-lock.json", "README.md")) {
   Copy-Item -LiteralPath (Join-Path $sourceRoot $file) -Destination $payloadApp -Force
 }
 New-Item -ItemType Directory -Path (Join-Path $payloadApp "db") -Force | Out-Null
@@ -79,7 +79,9 @@ foreach ($file in @(
     "install-service.ps1",
     "update-service.ps1",
     "status-service.ps1",
-    "uninstall-service.ps1"
+    "uninstall-service.ps1",
+    "set-report-password.ps1",
+    "hash-password.js"
   )) {
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $OutputDirectory -Force
 }

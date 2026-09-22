@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { Readable } = require("stream");
 
 loadEnvironmentFile(process.env.SERVICE_ENV_FILE);
@@ -11,6 +12,16 @@ const API_ORIGIN = process.env.API_ORIGIN || "http://gridvisdemo.site:8080";
 const STATIC_ROOT = process.cwd();
 const APP_API_PREFIX = "/app-api";
 const LOCAL_METADATA_PATH = resolveLocalMetadataPath();
+const REPORT_USERNAME = String(process.env.REPORT_USERNAME || "").trim();
+const REPORT_PASSWORD_HASH = String(process.env.REPORT_PASSWORD_HASH || "").trim();
+const SESSION_COOKIE = "report_session";
+const SESSION_IDLE_MS = 24 * 60 * 60 * 1000;
+const sessions = new Map();
+const loginAttempts = new Map();
+
+if (!REPORT_USERNAME || !/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/i.test(REPORT_PASSWORD_HASH)) {
+  throw new Error("Set REPORT_USERNAME and a valid REPORT_PASSWORD_HASH before starting the report service.");
+}
 
 const CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -74,8 +85,107 @@ function send(res, status, message) {
 }
 
 function sendJson(res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
   res.end(JSON.stringify(payload));
+}
+
+function getCookie(req, name) {
+  const pair = String(req.headers.cookie || "")
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(`${name}=`));
+  return pair ? pair.slice(name.length + 1) : "";
+}
+
+function isSecureRequest(req) {
+  return Boolean(req.socket.encrypted) ||
+    (process.env.TRUST_PROXY_HTTPS === "true" && req.headers["x-forwarded-proto"] === "https");
+}
+
+function sessionCookie(req, token = "") {
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+  if (!token) parts.push("Max-Age=0");
+  if (isSecureRequest(req)) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function currentSession(req) {
+  const token = getCookie(req, SESSION_COOKIE);
+  if (!/^[a-f0-9]{64}$/.test(token)) return null;
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (Date.now() - session.lastSeen > SESSION_IDLE_MS) {
+    sessions.delete(token);
+    return null;
+  }
+  session.lastSeen = Date.now();
+  return session;
+}
+
+function verifyReportPassword(password) {
+  const [, salt, expectedHash] = REPORT_PASSWORD_HASH.split(":");
+  const actualHash = crypto.scryptSync(String(password || ""), Buffer.from(salt, "hex"), 64);
+  return crypto.timingSafeEqual(actualHash, Buffer.from(expectedHash, "hex"));
+}
+
+function hasMatchingOrigin(req) {
+  const origin = String(req.headers.origin || "");
+  if (!origin) return false;
+  try {
+    return new URL(origin).host === req.headers.host &&
+      new URL(origin).protocol === (isSecureRequest(req) ? "https:" : "http:");
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function handleReportLogin(req, res) {
+  if (req.method !== "POST" || !hasMatchingOrigin(req)) {
+    send(res, 403, "Forbidden");
+    return;
+  }
+  const ip = req.socket.remoteAddress || "unknown";
+  const attempt = loginAttempts.get(ip);
+  if (attempt && attempt.until > Date.now()) {
+    sendJson(res, 429, { error: "Too many attempts. Try again later." });
+    return;
+  }
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (_error) {
+    sendJson(res, 400, { error: "Invalid request." });
+    return;
+  }
+  const username = String(body?.username || "").trim();
+  const password = String(body?.password || "");
+  if (username.length > 256 || password.length > 1024) {
+    sendJson(res, 400, { error: "Invalid credentials." });
+    return;
+  }
+  const valid = username === REPORT_USERNAME && verifyReportPassword(password);
+  if (!valid) {
+    const failures = (attempt?.failures || 0) + 1;
+    loginAttempts.set(ip, {
+      failures,
+      until: failures >= 5 ? Date.now() + 15 * 60 * 1000 : 0,
+    });
+    sendJson(res, 401, { error: "Invalid username or password." });
+    return;
+  }
+  loginAttempts.delete(ip);
+  const token = crypto.randomBytes(32).toString("hex");
+  sessions.set(token, { username, lastSeen: Date.now() });
+  res.setHeader("Set-Cookie", sessionCookie(req, token));
+  sendJson(res, 200, { username });
 }
 
 function safeJoin(root, requestedPath) {
@@ -140,8 +250,8 @@ function serveStatic(req, res) {
   let pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
   if (pathname === "/") pathname = "/index.html";
 
-  if (pathname === "/db" || pathname.startsWith("/db/")) {
-    send(res, 403, "Forbidden");
+  if (!["/index.html", "/app.js", "/styles.css", "/login.html", "/login.js", "/login.css"].includes(pathname)) {
+    send(res, 404, "Not found");
     return;
   }
 
@@ -159,7 +269,7 @@ function serveStatic(req, res) {
 
     const ext = path.extname(filePath).toLowerCase();
     const contentType = CONTENT_TYPES[ext] || "application/octet-stream";
-    res.writeHead(200, { "Content-Type": contentType });
+    res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-store" });
     fs.createReadStream(filePath).pipe(res);
   });
 }
@@ -170,6 +280,8 @@ async function proxyApi(req, res) {
   delete incomingHeaders.host;
   delete incomingHeaders.origin;
   delete incomingHeaders.referer;
+  delete incomingHeaders.cookie;
+  delete incomingHeaders.authorization;
 
   const upstreamAuthHeaders = getUpstreamAuthHeaders();
   const upstreamExtraHeaders = getUpstreamExtraHeaders();
@@ -177,10 +289,10 @@ async function proxyApi(req, res) {
     ...incomingHeaders,
     ...upstreamExtraHeaders,
   };
-  if (!upstreamHeaders.authorization && upstreamAuthHeaders.Authorization) {
+  if (upstreamAuthHeaders.Authorization) {
     upstreamHeaders.authorization = upstreamAuthHeaders.Authorization;
   }
-  if (!upstreamHeaders.cookie && upstreamExtraHeaders.Cookie) {
+  if (upstreamExtraHeaders.Cookie) {
     upstreamHeaders.cookie = upstreamExtraHeaders.Cookie;
   }
 
@@ -507,7 +619,12 @@ async function initializeDatabase() {
 
 async function readJsonBody(req) {
   const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > 1024 * 1024) {
+      throw new Error("Request body exceeds 1 MB.");
+    }
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
 
@@ -1194,11 +1311,52 @@ const server = http.createServer(async (req, res) => {
 
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    if (requestUrl.pathname === "/auth/login") {
+      await handleReportLogin(req, res);
+      return;
+    }
+    if (requestUrl.pathname === "/auth/logout") {
+      if (req.method !== "POST" || !hasMatchingOrigin(req)) {
+        send(res, 403, "Forbidden");
+        return;
+      }
+      sessions.delete(getCookie(req, SESSION_COOKIE));
+      res.setHeader("Set-Cookie", sessionCookie(req));
+      sendJson(res, 200, { status: "signed-out" });
+      return;
+    }
+    if (requestUrl.pathname === "/login.html" || requestUrl.pathname === "/login.js" || requestUrl.pathname === "/login.css") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        send(res, 405, "Method not allowed");
+        return;
+      }
+      serveStatic(req, res);
+      return;
+    }
     if (requestUrl.pathname === "/health" && (req.method === "GET" || req.method === "HEAD")) {
       sendJson(res, 200, {
         status: "ok",
         persistence: useLocalMetadataStore() ? "json" : "postgres",
       });
+      return;
+    }
+
+    if (!currentSession(req)) {
+      if (req.method === "GET" &&
+          (requestUrl.pathname === "/" || requestUrl.pathname === "/index.html")) {
+        res.writeHead(302, {
+          Location: `/login.html?next=${encodeURIComponent(req.url)}`,
+          "Cache-Control": "no-store",
+        });
+        res.end();
+      } else {
+        sendJson(res, 401, { error: "Sign in to access reports." });
+      }
+      return;
+    }
+
+    if (req.method !== "GET" && req.method !== "HEAD" && !hasMatchingOrigin(req)) {
+      send(res, 403, "Forbidden");
       return;
     }
 

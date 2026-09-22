@@ -18,6 +18,7 @@ $serviceConfigSource = Join-Path $PSScriptRoot "CustomReportService.xml"
 foreach ($requiredPath in @(
     (Join-Path $payloadRoot "app\server.js"),
     (Join-Path $payloadRoot "runtime\node.exe"),
+    (Join-Path $PSScriptRoot "hash-password.js"),
     $serviceExecutableSource,
     $serviceConfigSource
   )) {
@@ -43,6 +44,8 @@ foreach ($scriptName in @("status-service.ps1", "uninstall-service.ps1")) {
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot $scriptName) -Destination (Join-Path $InstallRoot "scripts") -Force
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "service-common.ps1") -Destination (Join-Path $InstallRoot "scripts\service-common.ps1") -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "hash-password.js") -Destination (Join-Path $InstallRoot "scripts\hash-password.js") -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "set-report-password.ps1") -Destination (Join-Path $InstallRoot "scripts\set-report-password.ps1") -Force
 
 $environmentFile = Join-Path $InstallRoot "config\service.env"
 if (-not (Test-Path -LiteralPath $environmentFile)) {
@@ -52,7 +55,17 @@ if (-not (Test-Path -LiteralPath $environmentFile)) {
     .Replace("__PORT__", [string]$Port)
     .Replace("__API_ORIGIN__", $ApiOrigin.TrimEnd('/'))
     .Replace("__APP_METADATA_PATH__", $metadataPath)
+    .Replace("__REPORT_USERNAME__", "")
+    .Replace("__REPORT_PASSWORD_HASH__", "")
   Write-Utf8FileWithoutBom -Path $environmentFile -Content $environmentContent
+}
+
+if (-not ((Get-Content -LiteralPath $environmentFile -Raw) -match '(?m)^REPORT_USERNAME=.+$' -and
+    (Get-Content -LiteralPath $environmentFile -Raw) -match '(?m)^REPORT_PASSWORD_HASH=scrypt:[a-f0-9]{32}:[a-f0-9]{128}$')) {
+  Set-ReportLoginCredential `
+    -EnvironmentFile $environmentFile `
+    -NodePath (Join-Path $InstallRoot "runtime\node.exe") `
+    -HashScript (Join-Path $InstallRoot "scripts\hash-password.js")
 }
 
 Set-ServiceDirectoryPermissions -InstallRoot $InstallRoot

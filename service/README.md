@@ -13,13 +13,13 @@ npm run service:package
 The build downloads Node.js from `nodejs.org`, verifies its published SHA-256 checksum, downloads WinSW from its official GitHub release, installs production dependencies, and creates:
 
 ```text
-dist\CustomReportService-1.0.0.zip
+dist\CustomReportService-1.1.0.zip
 ```
 
 Override versions when preparing a new release:
 
 ```powershell
-.\service\build-service-package.ps1 -Version 1.1.0 -NodeVersion 24.21.0
+.\service\build-service-package.ps1 -Version 1.2.0 -NodeVersion 24.21.0
 ```
 
 ## Install on the host
@@ -29,6 +29,8 @@ Extract the ZIP, open PowerShell as Administrator in the extracted folder, then 
 ```powershell
 .\install-service.ps1 -ApiOrigin "http://GRIDVIS-HOST:8080" -OpenFirewall
 ```
+
+Installation prompts for a report username and password. The service stores only a salted password hash. Everyone using this account can view reports and edit Configuration, so distribute it only to authorized staff.
 
 The default installation path is:
 
@@ -50,6 +52,16 @@ Restart the service after changing configuration:
 Restart-Service CustomReportGenerator
 ```
 
+To rotate the report password, run from `C:\ProgramData\CustomReportGenerator\scripts` as Administrator:
+
+```powershell
+.\set-report-password.ps1
+```
+
+Report login uses an HttpOnly, SameSite=Lax browser-session cookie. Signing out or closing the browser session removes the cookie; restarting the service also invalidates existing sessions. Some browsers can restore session cookies when restoring tabs, so sign out on shared workstations. The service also expires sessions after 24 hours of inactivity.
+
+For deployment beyond a trusted isolated network, use HTTPS via a reverse proxy. The report login protects `/rest/*` and `/app-api/*`, but it does not provide per-user roles or GridVis single sign-on.
+
 ## Update
 
 Build and extract the new service ZIP on the host, then run its updater as Administrator:
@@ -67,6 +79,8 @@ The updater:
 5. Activates the new app and runtime.
 6. Starts the service and checks `/health`.
 7. Restores the previous release automatically if startup or the health check fails.
+
+When upgrading an installation that predates report login, the updater prompts for a report username and password before stopping the old service.
 
 Configuration, JSON metadata, PostgreSQL data, and logs are not replaced during an update.
 

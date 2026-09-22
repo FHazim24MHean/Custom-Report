@@ -37,6 +37,8 @@ npm install
 
 Start the local web server + API proxy:
 
+Set `REPORT_USERNAME` and `REPORT_PASSWORD_HASH` in your environment first. Generate a salted hash with `node service/hash-password.js` (it reads the password from standard input). The Windows Service installer prompts for these credentials automatically.
+
 ```bash
 npm start
 ```
@@ -54,6 +56,8 @@ npm run service:package
 ```
 
 Installation, updating, rollback, configuration, and uninstall instructions are in [`service/README.md`](service/README.md).
+
+The report page now requires its own login. Set `REPORT_USERNAME` and a salted `REPORT_PASSWORD_HASH` before starting `server.js`. The Windows service installer prompts for these; see `service/README.md`. The session uses an HttpOnly browser-session cookie rather than local storage.
 
 If the upstream REST API requires authentication, set one of these before starting:
 
