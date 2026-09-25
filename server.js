@@ -16,6 +16,16 @@ const REPORT_USERNAME = String(process.env.REPORT_USERNAME || "").trim();
 const REPORT_PASSWORD_HASH = String(process.env.REPORT_PASSWORD_HASH || "").trim();
 const SESSION_COOKIE = "report_session";
 const SESSION_IDLE_MS = 24 * 60 * 60 * 1000;
+const REPORT_LINK_RANGES = new Set([
+  "today",
+  "yesterday",
+  "last7",
+  "last30",
+  "last365",
+  "lastyear",
+  "custom",
+]);
+const REPORT_LINK_TYPES = new Set(["histvalues", "hist-events"]);
 const sessions = new Map();
 const loginAttempts = new Map();
 
@@ -246,8 +256,8 @@ function getUpstreamExtraHeaders() {
   return headers;
 }
 
-function serveStatic(req, res) {
-  let pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
+function serveStatic(req, res, pathnameOverride = "") {
+  let pathname = pathnameOverride || new URL(req.url, `http://${req.headers.host}`).pathname;
   if (pathname === "/") pathname = "/index.html";
 
   if (!["/index.html", "/app.js", "/styles.css", "/login.html", "/login.js", "/login.css"].includes(pathname)) {
@@ -397,6 +407,7 @@ function createEmptyLocalMetadataStore() {
     mainIntakes: [],
     deviceMainIntakeMappings: [],
     deviceLabels: [],
+    reportLinks: [],
   };
 }
 
@@ -412,6 +423,7 @@ function normalizeLocalMetadataStore(store) {
       ? safeStore.deviceMainIntakeMappings
       : [],
     deviceLabels: Array.isArray(safeStore.deviceLabels) ? safeStore.deviceLabels : [],
+    reportLinks: Array.isArray(safeStore.reportLinks) ? safeStore.reportLinks : [],
   };
 }
 
@@ -609,6 +621,28 @@ async function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_device_labels_project_name
           ON device_labels(project_name);
       `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS report_links (
+          id BIGSERIAL PRIMARY KEY,
+          slug TEXT NOT NULL UNIQUE,
+          project_name TEXT NOT NULL,
+          group_type TEXT NOT NULL CHECK (group_type IN ('substation', 'main-intake')),
+          group_id BIGINT NOT NULL,
+          side TEXT NOT NULL CHECK (side IN ('HT', 'LV')),
+          date_range TEXT NOT NULL DEFAULT 'today',
+          start_date DATE,
+          end_date DATE,
+          report_type TEXT NOT NULL DEFAULT 'histvalues',
+          autorun BOOLEAN NOT NULL DEFAULT TRUE,
+          enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_report_links_project_name
+          ON report_links(project_name);
+      `);
     })().catch((error) => {
       dbInitPromise = null;
       throw error;
@@ -646,6 +680,11 @@ function parsePathSegments(pathname, prefix) {
     .split("/")
     .filter(Boolean)
     .map((segment) => decodeURIComponent(segment));
+}
+
+function parseShortReportSlug(pathname) {
+  const match = String(pathname || "").match(/^\/r\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
 }
 
 function normalizeProjectSubstationPayload(
@@ -808,19 +847,44 @@ async function deleteSubstation(projectName, substationId) {
         (row) =>
           !(row.project_name === safeProjectName && String(row.substation_id) === safeSubstationId)
       );
+      store.reportLinks = store.reportLinks.filter(
+        (row) =>
+          !(
+            row.project_name === safeProjectName &&
+            row.group_type === "substation" &&
+            String(row.group_id) === safeSubstationId
+          )
+      );
       return buildLocalProjectPayload(safeProjectName, store);
     });
   }
 
   await initializeDatabase();
   const pool = getDbPool();
-  await pool.query(
-    `
-      DELETE FROM substations
-      WHERE project_name = $1 AND id = $2::bigint;
-    `,
-    [safeProjectName, safeSubstationId]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `
+        DELETE FROM report_links
+        WHERE project_name = $1 AND group_type = 'substation' AND group_id = $2::bigint;
+      `,
+      [safeProjectName, safeSubstationId]
+    );
+    await client.query(
+      `
+        DELETE FROM substations
+        WHERE project_name = $1 AND id = $2::bigint;
+      `,
+      [safeProjectName, safeSubstationId]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 
   return fetchProjectSubstationConfig(safeProjectName);
 }
@@ -1063,19 +1127,44 @@ async function deleteMainIntake(projectName, mainIntakeId) {
         (row) =>
           !(row.project_name === safeProjectName && String(row.main_intake_id) === safeMainIntakeId)
       );
+      store.reportLinks = store.reportLinks.filter(
+        (row) =>
+          !(
+            row.project_name === safeProjectName &&
+            row.group_type === "main-intake" &&
+            String(row.group_id) === safeMainIntakeId
+          )
+      );
       return buildLocalProjectPayload(safeProjectName, store);
     });
   }
 
   await initializeDatabase();
   const pool = getDbPool();
-  await pool.query(
-    `
-      DELETE FROM main_intakes
-      WHERE project_name = $1 AND id = $2::bigint;
-    `,
-    [safeProjectName, safeMainIntakeId]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `
+        DELETE FROM report_links
+        WHERE project_name = $1 AND group_type = 'main-intake' AND group_id = $2::bigint;
+      `,
+      [safeProjectName, safeMainIntakeId]
+    );
+    await client.query(
+      `
+        DELETE FROM main_intakes
+        WHERE project_name = $1 AND id = $2::bigint;
+      `,
+      [safeProjectName, safeMainIntakeId]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 
   return fetchProjectSubstationConfig(safeProjectName);
 }
@@ -1193,9 +1282,439 @@ async function updateDeviceMainIntakeMappings(projectName, deviceIds, mainIntake
   return fetchProjectSubstationConfig(safeProjectName);
 }
 
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function normalizeReportLinkSlug(value) {
+  const slug = String(value || "").trim().toLowerCase();
+  if (!slug || slug.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+    throw createHttpError(
+      400,
+      "Link name must be 1-64 lowercase letters or numbers separated by single hyphens."
+    );
+  }
+  return slug;
+}
+
+function normalizeDateOnly(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw createHttpError(400, `${fieldName} must use YYYY-MM-DD.`);
+  }
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    throw createHttpError(400, `${fieldName} is not a valid date.`);
+  }
+  return text;
+}
+
+function normalizeReportLinkInput(input) {
+  const projectName = String(input?.projectName || "").trim();
+  const groupType = String(input?.groupType || "").trim().toLowerCase();
+  const groupId = String(input?.groupId || "").trim();
+  const side = normalizeElectricalSide(input?.side);
+  const dateRange = String(input?.range || "today").trim().toLowerCase();
+  const reportType = String(input?.reportType || "histvalues").trim().toLowerCase();
+
+  if (!projectName || projectName.length > 256) {
+    throw createHttpError(400, "Project is required.");
+  }
+  if (!['substation', 'main-intake'].includes(groupType)) {
+    throw createHttpError(400, 'Group type must be "substation" or "main-intake".');
+  }
+  if (!/^\d+$/.test(groupId)) {
+    throw createHttpError(400, "A valid group is required.");
+  }
+  if (!side) {
+    throw createHttpError(400, 'Side must be either "HT" or "LV".');
+  }
+  if (!REPORT_LINK_RANGES.has(dateRange)) {
+    throw createHttpError(400, "The selected report range is not supported.");
+  }
+  if (!REPORT_LINK_TYPES.has(reportType)) {
+    throw createHttpError(400, "The selected report type is not supported.");
+  }
+
+  let startDate = null;
+  let endDate = null;
+  if (dateRange === "custom") {
+    startDate = normalizeDateOnly(input?.startDate, "Start date");
+    endDate = normalizeDateOnly(input?.endDate, "End date");
+    if (startDate > endDate) {
+      throw createHttpError(400, "Start date must not be after end date.");
+    }
+  }
+
+  return {
+    slug: normalizeReportLinkSlug(input?.slug),
+    projectName,
+    groupType,
+    groupId,
+    side,
+    range: dateRange,
+    startDate,
+    endDate,
+    reportType,
+    autorun: input?.autorun === undefined ? true : Boolean(input.autorun),
+    enabled: input?.enabled === undefined ? true : Boolean(input.enabled),
+  };
+}
+
+function formatDatabaseDate(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value).slice(0, 10);
+}
+
+function normalizeReportLinkRow(row, groupName = "") {
+  return {
+    id: String(row.id),
+    slug: String(row.slug),
+    projectName: String(row.project_name),
+    groupType: String(row.group_type),
+    groupId: String(row.group_id),
+    groupName: String(groupName || row.group_name || ""),
+    side: normalizeElectricalSide(row.side),
+    range: String(row.date_range || "today"),
+    startDate: formatDatabaseDate(row.start_date),
+    endDate: formatDatabaseDate(row.end_date),
+    reportType: String(row.report_type || "histvalues"),
+    autorun: Boolean(row.autorun),
+    enabled: Boolean(row.enabled),
+    createdAt: String(row.created_at || ""),
+    updatedAt: String(row.updated_at || ""),
+  };
+}
+
+function findLocalReportLinkGroup(store, link) {
+  const rows = link.groupType === "main-intake" ? store.mainIntakes : store.substations;
+  return rows.find(
+    (row) =>
+      String(row?.project_name || "") === link.projectName &&
+      String(row?.id || "") === link.groupId
+  ) || null;
+}
+
+async function findDatabaseReportLinkGroup(pool, link) {
+  const tableName = link.groupType === "main-intake" ? "main_intakes" : "substations";
+  const result = await pool.query(
+    `SELECT id, name FROM ${tableName} WHERE project_name = $1 AND id = $2::bigint;`,
+    [link.projectName, link.groupId]
+  );
+  return result.rows[0] || null;
+}
+
+async function listReportLinksForProject(projectName) {
+  const safeProjectName = String(projectName || "").trim();
+  if (!safeProjectName) {
+    throw createHttpError(400, "Project is required.");
+  }
+
+  if (useLocalMetadataStore()) {
+    const store = await readLocalMetadataStore();
+    return store.reportLinks
+      .filter((row) => String(row?.project_name || "") === safeProjectName)
+      .map((row) => {
+        const link = normalizeReportLinkRow(row);
+        const group = findLocalReportLinkGroup(store, link);
+        return normalizeReportLinkRow(row, group?.name);
+      })
+      .sort((left, right) => left.slug.localeCompare(right.slug));
+  }
+
+  await initializeDatabase();
+  const result = await getDbPool().query(
+    `
+      SELECT rl.*, COALESCE(s.name, mi.name) AS group_name
+      FROM report_links rl
+      LEFT JOIN substations s
+        ON rl.group_type = 'substation'
+        AND s.project_name = rl.project_name
+        AND s.id = rl.group_id
+      LEFT JOIN main_intakes mi
+        ON rl.group_type = 'main-intake'
+        AND mi.project_name = rl.project_name
+        AND mi.id = rl.group_id
+      WHERE rl.project_name = $1
+      ORDER BY LOWER(rl.slug), rl.slug;
+    `,
+    [safeProjectName]
+  );
+  return result.rows.map((row) => normalizeReportLinkRow(row));
+}
+
+async function fetchReportLinkBySlug(slug, { includeDisabled = false } = {}) {
+  const safeSlug = normalizeReportLinkSlug(slug);
+  if (useLocalMetadataStore()) {
+    const store = await readLocalMetadataStore();
+    const row = store.reportLinks.find((item) => String(item?.slug || "") === safeSlug);
+    if (!row || (!includeDisabled && !row.enabled)) {
+      throw createHttpError(404, "Report link not found.");
+    }
+    const link = normalizeReportLinkRow(row);
+    const group = findLocalReportLinkGroup(store, link);
+    if (!group) {
+      throw createHttpError(404, "The group assigned to this report link no longer exists.");
+    }
+    return normalizeReportLinkRow(row, group.name);
+  }
+
+  await initializeDatabase();
+  const result = await getDbPool().query(
+    `
+      SELECT rl.*, COALESCE(s.name, mi.name) AS group_name
+      FROM report_links rl
+      LEFT JOIN substations s
+        ON rl.group_type = 'substation'
+        AND s.project_name = rl.project_name
+        AND s.id = rl.group_id
+      LEFT JOIN main_intakes mi
+        ON rl.group_type = 'main-intake'
+        AND mi.project_name = rl.project_name
+        AND mi.id = rl.group_id
+      WHERE rl.slug = $1;
+    `,
+    [safeSlug]
+  );
+  const row = result.rows[0];
+  if (!row || (!includeDisabled && !row.enabled)) {
+    throw createHttpError(404, "Report link not found.");
+  }
+  if (!row.group_name) {
+    throw createHttpError(404, "The group assigned to this report link no longer exists.");
+  }
+  return normalizeReportLinkRow(row);
+}
+
+async function createReportLink(input) {
+  const link = normalizeReportLinkInput(input);
+  if (useLocalMetadataStore()) {
+    return withLocalMetadataStore((store) => {
+      if (store.reportLinks.some((row) => String(row?.slug || "") === link.slug)) {
+        throw createHttpError(409, `Report link "${link.slug}" already exists.`);
+      }
+      const group = findLocalReportLinkGroup(store, link);
+      if (!group) {
+        throw createHttpError(400, "The selected group does not exist for this project.");
+      }
+      const now = new Date().toISOString();
+      const row = {
+        id: getNextLocalId(store.reportLinks),
+        slug: link.slug,
+        project_name: link.projectName,
+        group_type: link.groupType,
+        group_id: link.groupId,
+        side: link.side,
+        date_range: link.range,
+        start_date: link.startDate,
+        end_date: link.endDate,
+        report_type: link.reportType,
+        autorun: link.autorun,
+        enabled: link.enabled,
+        created_at: now,
+        updated_at: now,
+      };
+      store.reportLinks.push(row);
+      return normalizeReportLinkRow(row, group.name);
+    });
+  }
+
+  await initializeDatabase();
+  const pool = getDbPool();
+  const group = await findDatabaseReportLinkGroup(pool, link);
+  if (!group) {
+    throw createHttpError(400, "The selected group does not exist for this project.");
+  }
+  try {
+    const result = await pool.query(
+      `
+        INSERT INTO report_links (
+          slug, project_name, group_type, group_id, side, date_range,
+          start_date, end_date, report_type, autorun, enabled
+        )
+        VALUES ($1, $2, $3, $4::bigint, $5, $6, $7::date, $8::date, $9, $10, $11)
+        RETURNING *;
+      `,
+      [
+        link.slug,
+        link.projectName,
+        link.groupType,
+        link.groupId,
+        link.side,
+        link.range,
+        link.startDate,
+        link.endDate,
+        link.reportType,
+        link.autorun,
+        link.enabled,
+      ]
+    );
+    return normalizeReportLinkRow(result.rows[0], group.name);
+  } catch (error) {
+    if (error.code === "23505") {
+      throw createHttpError(409, `Report link "${link.slug}" already exists.`);
+    }
+    throw error;
+  }
+}
+
+async function updateReportLink(originalSlug, input) {
+  const safeOriginalSlug = normalizeReportLinkSlug(originalSlug);
+  const link = normalizeReportLinkInput(input);
+  if (useLocalMetadataStore()) {
+    return withLocalMetadataStore((store) => {
+      const row = store.reportLinks.find((item) => String(item?.slug || "") === safeOriginalSlug);
+      if (!row) {
+        throw createHttpError(404, "Report link not found.");
+      }
+      if (
+        link.slug !== safeOriginalSlug &&
+        store.reportLinks.some((item) => String(item?.slug || "") === link.slug)
+      ) {
+        throw createHttpError(409, `Report link "${link.slug}" already exists.`);
+      }
+      const group = findLocalReportLinkGroup(store, link);
+      if (!group) {
+        throw createHttpError(400, "The selected group does not exist for this project.");
+      }
+      Object.assign(row, {
+        slug: link.slug,
+        project_name: link.projectName,
+        group_type: link.groupType,
+        group_id: link.groupId,
+        side: link.side,
+        date_range: link.range,
+        start_date: link.startDate,
+        end_date: link.endDate,
+        report_type: link.reportType,
+        autorun: link.autorun,
+        enabled: link.enabled,
+        updated_at: new Date().toISOString(),
+      });
+      return normalizeReportLinkRow(row, group.name);
+    });
+  }
+
+  await initializeDatabase();
+  const pool = getDbPool();
+  const group = await findDatabaseReportLinkGroup(pool, link);
+  if (!group) {
+    throw createHttpError(400, "The selected group does not exist for this project.");
+  }
+  try {
+    const result = await pool.query(
+      `
+        UPDATE report_links
+        SET slug = $2,
+            project_name = $3,
+            group_type = $4,
+            group_id = $5::bigint,
+            side = $6,
+            date_range = $7,
+            start_date = $8::date,
+            end_date = $9::date,
+            report_type = $10,
+            autorun = $11,
+            enabled = $12,
+            updated_at = NOW()
+        WHERE slug = $1
+        RETURNING *;
+      `,
+      [
+        safeOriginalSlug,
+        link.slug,
+        link.projectName,
+        link.groupType,
+        link.groupId,
+        link.side,
+        link.range,
+        link.startDate,
+        link.endDate,
+        link.reportType,
+        link.autorun,
+        link.enabled,
+      ]
+    );
+    if (!result.rows.length) {
+      throw createHttpError(404, "Report link not found.");
+    }
+    return normalizeReportLinkRow(result.rows[0], group.name);
+  } catch (error) {
+    if (error.code === "23505") {
+      throw createHttpError(409, `Report link "${link.slug}" already exists.`);
+    }
+    throw error;
+  }
+}
+
+async function deleteReportLink(slug) {
+  const safeSlug = normalizeReportLinkSlug(slug);
+  if (useLocalMetadataStore()) {
+    return withLocalMetadataStore((store) => {
+      const previousLength = store.reportLinks.length;
+      store.reportLinks = store.reportLinks.filter(
+        (row) => String(row?.slug || "") !== safeSlug
+      );
+      if (store.reportLinks.length === previousLength) {
+        throw createHttpError(404, "Report link not found.");
+      }
+      return { status: "deleted", slug: safeSlug };
+    });
+  }
+
+  await initializeDatabase();
+  const result = await getDbPool().query(
+    "DELETE FROM report_links WHERE slug = $1 RETURNING slug;",
+    [safeSlug]
+  );
+  if (!result.rows.length) {
+    throw createHttpError(404, "Report link not found.");
+  }
+  return { status: "deleted", slug: safeSlug };
+}
+
 async function handleAppApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const segments = parsePathSegments(url.pathname, APP_API_PREFIX);
+
+  if (
+    segments.length === 3 &&
+    segments[0] === "projects" &&
+    segments[2] === "report-links"
+  ) {
+    const projectName = segments[1];
+    if (req.method === "GET") {
+      sendJson(res, 200, await listReportLinksForProject(projectName));
+      return;
+    }
+    if (req.method === "POST") {
+      const body = await readJsonBody(req);
+      sendJson(res, 201, await createReportLink({ ...body, projectName }));
+      return;
+    }
+  }
+
+  if (segments.length === 2 && segments[0] === "report-links") {
+    const slug = segments[1];
+    if (req.method === "GET") {
+      sendJson(res, 200, await fetchReportLinkBySlug(slug));
+      return;
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody(req);
+      sendJson(res, 200, await updateReportLink(slug, body));
+      return;
+    }
+    if (req.method === "DELETE") {
+      sendJson(res, 200, await deleteReportLink(slug));
+      return;
+    }
+  }
 
   if (segments.length === 3 && segments[0] === "projects" && segments[2] === "substations") {
     const projectName = segments[1];
@@ -1311,6 +1830,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const shortReportSlug = parseShortReportSlug(requestUrl.pathname);
     if (requestUrl.pathname === "/auth/login") {
       await handleReportLogin(req, res);
       return;
@@ -1343,7 +1863,9 @@ const server = http.createServer(async (req, res) => {
 
     if (!currentSession(req)) {
       if (req.method === "GET" &&
-          (requestUrl.pathname === "/" || requestUrl.pathname === "/index.html")) {
+          (requestUrl.pathname === "/" ||
+            requestUrl.pathname === "/index.html" ||
+            Boolean(shortReportSlug))) {
         res.writeHead(302, {
           Location: `/login.html?next=${encodeURIComponent(req.url)}`,
           "Cache-Control": "no-store",
@@ -1370,6 +1892,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (shortReportSlug) {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        send(res, 405, "Method not allowed");
+        return;
+      }
+      await fetchReportLinkBySlug(shortReportSlug);
+      serveStatic(req, res, "/index.html");
+      return;
+    }
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       send(res, 405, "Method not allowed");
       return;
@@ -1377,7 +1909,8 @@ const server = http.createServer(async (req, res) => {
 
     serveStatic(req, res);
   } catch (error) {
-    send(res, 500, error.message || "Unexpected server error.");
+    const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+    send(res, statusCode, error.message || "Unexpected server error.");
   }
 });
 

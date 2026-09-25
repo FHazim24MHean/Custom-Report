@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Custom Report Generator</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="page">
@@ -140,13 +140,49 @@
       <div class="config-shell">
         <div class="config-header-card">
           <div>
-            <h2>Compliance Configuration</h2>
-            <p class="config-copy">Manage substations, device labels, and device assignments for the current project.</p>
+            <h2>Configuration</h2>
+            <p class="config-copy">Manage devices, electrical groups, transformer mappings, and report links for the current project.</p>
           </div>
           <p id="configProjectSummary" class="config-project-summary">Select a project to configure device mappings.</p>
         </div>
 
-        <section class="config-grid">
+        <div class="config-module-tabs" role="tablist" aria-label="Configuration modules">
+          <button id="deviceManagementTab" class="config-module-tab active" type="button" role="tab" aria-selected="true" aria-controls="deviceManagementPanel">Device Management</button>
+          <button id="substationManagementTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="substationManagementPanel">Substation Management</button>
+          <button id="mainIntakeManagementTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="mainIntakeManagementPanel">Main Intake Management</button>
+          <button id="transformerMappingTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="transformerMappingPanel">Transformer Mapping</button>
+          <button id="reportLinksTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="reportLinksPanel">Report Links</button>
+        </div>
+
+        <section id="deviceManagementPanel" class="config-module-panel" role="tabpanel" aria-labelledby="deviceManagementTab">
+          <div class="config-card">
+            <h3>Device Management</h3>
+            <p class="config-copy">Select the project, manage report labels, and review each device's current electrical group assignments.</p>
+            <div class="config-filter-bar config-module-filter">
+              <div class="field-group">
+                <label class="field-label" for="configProjectSelect">Project</label>
+                <select id="configProjectSelect" class="input-control">
+                  <option value="">Select project</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="configDeviceSearch">Device Search</label>
+                <input id="configDeviceSearch" class="input-control" type="search" placeholder="Search devices">
+              </div>
+            </div>
+
+            <div class="config-selection-bar">
+              <button id="selectAllFilteredConfigButton" class="secondary-button" type="button">Select All Filtered</button>
+              <button id="clearFilteredConfigButton" class="secondary-button" type="button">Clear Filtered</button>
+              <span id="configDeviceCount" class="config-device-count">0 filtered device(s)</span>
+            </div>
+
+            <div id="configDeviceList" class="config-device-list device-management-list" aria-label="Configurable device list"></div>
+          </div>
+        </section>
+
+        <section id="substationManagementPanel" class="config-module-panel hidden" role="tabpanel" aria-labelledby="substationManagementTab">
+          <div class="config-management-grid">
           <section class="config-card">
             <h3>Substation Management</h3>
             <p class="config-copy">Create substations for the selected project, then map devices to a group and its HT or LV side.</p>
@@ -182,10 +218,34 @@
             </div>
 
             <div id="substationList" class="config-device-list" aria-label="Configured substation list"></div>
+          </section>
 
-            <h4 class="config-subsection-title">Main Intake Mapping</h4>
-            <p class="config-copy">Create main intake groups, then map devices to a group and its HT or LV side. This will appear as a separate table in the report.</p>
+          <section class="config-card compact-device-card">
+            <div class="compact-device-heading">
+              <div>
+                <h3>Devices</h3>
+                <p class="config-copy">Select devices for the substation assignment controls.</p>
+              </div>
+              <span id="substationDeviceCount" class="config-device-count">0 device(s)</span>
+            </div>
+            <label class="field-group" for="substationDeviceSearch">
+              <span class="field-label">Device Search</span>
+              <input id="substationDeviceSearch" class="input-control" type="search" placeholder="Search device or report label">
+            </label>
+            <div class="config-selection-bar compact-selection-bar">
+              <button id="selectAllSubstationDevicesButton" class="secondary-button" type="button">Select All Filtered</button>
+              <button id="clearSubstationDevicesButton" class="secondary-button" type="button">Clear Filtered</button>
+            </div>
+            <div id="substationDeviceList" class="config-device-list compact-device-list" aria-label="Substation device selection list"></div>
+          </section>
+          </div>
+        </section>
 
+        <section id="mainIntakeManagementPanel" class="config-module-panel hidden" role="tabpanel" aria-labelledby="mainIntakeManagementTab">
+          <div class="config-management-grid">
+          <section class="config-card">
+            <h3>Main Intake Management</h3>
+            <p class="config-copy">Create main intake groups, then map devices to a group and its HT or LV side.</p>
             <div class="config-filter-bar substation-create-bar">
               <div class="field-group">
                 <label class="field-label" for="mainIntakeNameInput">New Main Intake</label>
@@ -219,31 +279,28 @@
             <div id="mainIntakeList" class="config-device-list" aria-label="Configured main intake list"></div>
           </section>
 
-          <div class="config-card">
-            <h3>Device Scope</h3>
-            <div class="config-filter-bar">
-              <div class="field-group">
-                <label class="field-label" for="configProjectSelect">Project</label>
-                <select id="configProjectSelect" class="input-control">
-                  <option value="">Select project</option>
-                </select>
+          <section class="config-card compact-device-card">
+            <div class="compact-device-heading">
+              <div>
+                <h3>Devices</h3>
+                <p class="config-copy">Select devices for the main intake assignment controls.</p>
               </div>
-              <div class="field-group">
-                <label class="field-label" for="configDeviceSearch">Device Search</label>
-                <input id="configDeviceSearch" class="input-control" type="search" placeholder="Search devices">
-              </div>
+              <span id="mainIntakeDeviceCount" class="config-device-count">0 device(s)</span>
             </div>
-
-            <div class="config-selection-bar">
-              <button id="selectAllFilteredConfigButton" class="secondary-button" type="button">Select All Filtered</button>
-              <button id="clearFilteredConfigButton" class="secondary-button" type="button">Clear Filtered</button>
-              <span id="configDeviceCount" class="config-device-count">0 filtered device(s)</span>
+            <label class="field-group" for="mainIntakeDeviceSearch">
+              <span class="field-label">Device Search</span>
+              <input id="mainIntakeDeviceSearch" class="input-control" type="search" placeholder="Search device or report label">
+            </label>
+            <div class="config-selection-bar compact-selection-bar">
+              <button id="selectAllMainIntakeDevicesButton" class="secondary-button" type="button">Select All Filtered</button>
+              <button id="clearMainIntakeDevicesButton" class="secondary-button" type="button">Clear Filtered</button>
             </div>
-
-            <div id="configDeviceList" class="config-device-list" aria-label="Configurable device list"></div>
+            <div id="mainIntakeDeviceList" class="config-device-list compact-device-list" aria-label="Main intake device selection list"></div>
+          </section>
           </div>
         </section>
 
+        <section id="transformerMappingPanel" class="config-module-panel hidden" role="tabpanel" aria-labelledby="transformerMappingTab">
         <section class="config-card">
           <h3>Transformer Mapping</h3>
           <p class="config-copy">Map the HT-side and LV-side devices for each step-down transformer so the report can calculate transformation ratio.</p>
@@ -266,6 +323,91 @@
           </div>
           <div id="transformerMappingList" class="config-device-list" aria-label="Transformer mapping list"></div>
         </section>
+        </section>
+
+        <section id="reportLinksPanel" class="config-module-panel hidden" role="tabpanel" aria-labelledby="reportLinksTab">
+        <section class="config-card report-links-card">
+          <div class="report-links-heading">
+            <div>
+              <h3>Report Links</h3>
+              <p class="config-copy">Create stable short URLs for a group and electrical side. Device membership is resolved when the link is opened.</p>
+            </div>
+            <span id="reportLinkCount" class="config-device-count">0 link(s)</span>
+          </div>
+
+          <div class="report-link-form">
+            <label class="field-group" for="reportLinkSlugInput">
+              <span class="field-label">Short Link Name</span>
+              <span class="report-link-slug-control">
+                <span>/r/</span>
+                <input id="reportLinkSlugInput" class="input-control" type="text" maxlength="64" placeholder="perodua-ss12-ht" autocomplete="off">
+              </span>
+            </label>
+            <label class="field-group" for="reportLinkGroupTypeSelect">
+              <span class="field-label">Group Type</span>
+              <select id="reportLinkGroupTypeSelect" class="input-control">
+                <option value="substation">Substation</option>
+                <option value="main-intake">Main Intake</option>
+              </select>
+            </label>
+            <label class="field-group" for="reportLinkGroupSelect">
+              <span class="field-label">Group</span>
+              <select id="reportLinkGroupSelect" class="input-control">
+                <option value="">Select group</option>
+              </select>
+            </label>
+            <label class="field-group" for="reportLinkSideSelect">
+              <span class="field-label">Electrical Side</span>
+              <select id="reportLinkSideSelect" class="input-control">
+                <option value="HT">HT</option>
+                <option value="LV">LV</option>
+              </select>
+            </label>
+            <label class="field-group" for="reportLinkRangeSelect">
+              <span class="field-label">Default Range</span>
+              <select id="reportLinkRangeSelect" class="input-control">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="last7">Last 7 Days</option>
+                <option value="last30">Last 30 Days</option>
+                <option value="last365">Last 365 Days</option>
+                <option value="lastyear">Last Year</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label class="field-group" for="reportLinkTypeSelect">
+              <span class="field-label">Report Type</span>
+              <select id="reportLinkTypeSelect" class="input-control">
+                <option value="histvalues">Historical Values</option>
+                <option value="hist-events">Historical Events</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="reportLinkCustomDates" class="report-link-custom-dates hidden">
+            <label class="field-group" for="reportLinkStartDate">
+              <span class="field-label">Start Date</span>
+              <input id="reportLinkStartDate" class="input-control" type="date">
+            </label>
+            <label class="field-group" for="reportLinkEndDate">
+              <span class="field-label">End Date</span>
+              <input id="reportLinkEndDate" class="input-control" type="date">
+            </label>
+          </div>
+
+          <div class="report-link-options">
+            <label><input id="reportLinkAutorunCheckbox" type="checkbox" checked> Generate report automatically</label>
+            <label><input id="reportLinkEnabledCheckbox" type="checkbox" checked> Link enabled</label>
+          </div>
+
+          <div class="config-actions">
+            <button id="saveReportLinkButton" class="generate-button" type="button">Create Link</button>
+            <button id="cancelReportLinkEditButton" class="secondary-button hidden" type="button">Cancel Edit</button>
+          </div>
+
+          <div id="reportLinkList" class="config-device-list report-link-list" aria-label="Configured report links"></div>
+        </section>
+        </section>
       </div>
     </section>
   </main>
@@ -274,6 +416,6 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="./app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

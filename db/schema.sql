@@ -63,3 +63,23 @@ CREATE TABLE IF NOT EXISTS device_labels (
 
 CREATE INDEX IF NOT EXISTS idx_device_labels_project_name
   ON device_labels(project_name);
+
+CREATE TABLE IF NOT EXISTS report_links (
+  id BIGSERIAL PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  project_name TEXT NOT NULL,
+  group_type TEXT NOT NULL CHECK (group_type IN ('substation', 'main-intake')),
+  group_id BIGINT NOT NULL,
+  side TEXT NOT NULL CHECK (side IN ('HT', 'LV')),
+  date_range TEXT NOT NULL DEFAULT 'today',
+  start_date DATE,
+  end_date DATE,
+  report_type TEXT NOT NULL DEFAULT 'histvalues',
+  autorun BOOLEAN NOT NULL DEFAULT TRUE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_links_project_name
+  ON report_links(project_name);

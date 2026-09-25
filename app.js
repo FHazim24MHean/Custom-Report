@@ -17,7 +17,7 @@ const API_CONFIG = {
     last365: 365,
   },
   defaultProjectName: "",
-  eventsTypes: "",
+  eventsTypes: "",                                                    
   debugApi: true,
 };
 
@@ -203,7 +203,8 @@ const POWER_QUALITY_REPORT_BASE_COLUMNS = [
   "Phase",
   "Voltage Sag",
 ];
-const REPORT_LINK_REQUEST = parseReportLinkRequest(window.location.search);
+let REPORT_LINK_REQUEST = parseReportLinkRequest(window.location.search);
+let REPORT_LINK_LOAD_ERROR = "";
 
 const state = {
   projects: [],
@@ -230,12 +231,18 @@ const state = {
   activeDateTab: "",
   latestApiUrls: [],
   activePage: "report",
+  activeConfigModule: "devices",
   configDeviceSearch: "",
+  substationDeviceSearch: "",
+  mainIntakeDeviceSearch: "",
   configSelectedDeviceIds: new Set(),
   deviceValueDescriptionsByProject: {},
   thresholdOverridesByDevice: loadThresholdOverrides(),
   substationMappingsByProject: loadSubstationMappings(),
   transformerMappings: loadTransformerMappings(),
+  reportLinks: [],
+  editingReportLinkSlug: "",
+  reportLinkSlugEdited: false,
 };
 
 const projectSelect = document.getElementById("projectSelect");
@@ -301,6 +308,41 @@ const transformerHtDeviceSelect = document.getElementById("transformerHtDeviceSe
 const transformerLvDeviceSelect = document.getElementById("transformerLvDeviceSelect");
 const addTransformerMappingButton = document.getElementById("addTransformerMappingButton");
 const transformerMappingList = document.getElementById("transformerMappingList");
+const deviceManagementTab = document.getElementById("deviceManagementTab");
+const substationManagementTab = document.getElementById("substationManagementTab");
+const mainIntakeManagementTab = document.getElementById("mainIntakeManagementTab");
+const transformerMappingTab = document.getElementById("transformerMappingTab");
+const reportLinksTab = document.getElementById("reportLinksTab");
+const deviceManagementPanel = document.getElementById("deviceManagementPanel");
+const substationManagementPanel = document.getElementById("substationManagementPanel");
+const mainIntakeManagementPanel = document.getElementById("mainIntakeManagementPanel");
+const transformerMappingPanel = document.getElementById("transformerMappingPanel");
+const reportLinksPanel = document.getElementById("reportLinksPanel");
+const substationDeviceSearch = document.getElementById("substationDeviceSearch");
+const substationDeviceCount = document.getElementById("substationDeviceCount");
+const substationDeviceList = document.getElementById("substationDeviceList");
+const selectAllSubstationDevicesButton = document.getElementById("selectAllSubstationDevicesButton");
+const clearSubstationDevicesButton = document.getElementById("clearSubstationDevicesButton");
+const mainIntakeDeviceSearch = document.getElementById("mainIntakeDeviceSearch");
+const mainIntakeDeviceCount = document.getElementById("mainIntakeDeviceCount");
+const mainIntakeDeviceList = document.getElementById("mainIntakeDeviceList");
+const selectAllMainIntakeDevicesButton = document.getElementById("selectAllMainIntakeDevicesButton");
+const clearMainIntakeDevicesButton = document.getElementById("clearMainIntakeDevicesButton");
+const reportLinkCount = document.getElementById("reportLinkCount");
+const reportLinkSlugInput = document.getElementById("reportLinkSlugInput");
+const reportLinkGroupTypeSelect = document.getElementById("reportLinkGroupTypeSelect");
+const reportLinkGroupSelect = document.getElementById("reportLinkGroupSelect");
+const reportLinkSideSelect = document.getElementById("reportLinkSideSelect");
+const reportLinkRangeSelect = document.getElementById("reportLinkRangeSelect");
+const reportLinkTypeSelect = document.getElementById("reportLinkTypeSelect");
+const reportLinkCustomDates = document.getElementById("reportLinkCustomDates");
+const reportLinkStartDate = document.getElementById("reportLinkStartDate");
+const reportLinkEndDate = document.getElementById("reportLinkEndDate");
+const reportLinkAutorunCheckbox = document.getElementById("reportLinkAutorunCheckbox");
+const reportLinkEnabledCheckbox = document.getElementById("reportLinkEnabledCheckbox");
+const saveReportLinkButton = document.getElementById("saveReportLinkButton");
+const cancelReportLinkEditButton = document.getElementById("cancelReportLinkEditButton");
+const reportLinkList = document.getElementById("reportLinkList");
 
 document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
@@ -310,8 +352,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderActivePage();
   renderDeviceTables([]);
   renderMainIntakeReportTable();
+  try {
+    const shortLinkRequest = await resolveShortReportLinkRequest(window.location.pathname);
+    if (shortLinkRequest) {
+      REPORT_LINK_REQUEST = shortLinkRequest;
+    }
+  } catch (error) {
+    REPORT_LINK_LOAD_ERROR = error.message;
+  }
   await loadProjects();
-  await applyReportLinkRequest(REPORT_LINK_REQUEST);
+  if (REPORT_LINK_LOAD_ERROR) {
+    setStatus(REPORT_LINK_LOAD_ERROR, true);
+  } else {
+    await applyReportLinkRequest(REPORT_LINK_REQUEST);
+  }
 });
 
 function bindEvents() {
@@ -328,6 +382,12 @@ function bindEvents() {
     state.activePage = "config";
     renderActivePage();
   });
+
+  deviceManagementTab.addEventListener("click", () => setActiveConfigModule("devices"));
+  substationManagementTab.addEventListener("click", () => setActiveConfigModule("substations"));
+  mainIntakeManagementTab.addEventListener("click", () => setActiveConfigModule("main-intakes"));
+  transformerMappingTab.addEventListener("click", () => setActiveConfigModule("transformers"));
+  reportLinksTab.addEventListener("click", () => setActiveConfigModule("report-links"));
 
   deviceDropdownButton.addEventListener("click", () => {
     const isHidden = deviceDropdownMenu.classList.contains("hidden");
@@ -351,6 +411,11 @@ function bindEvents() {
 
   configProjectSelect.addEventListener("change", async (event) => {
     state.configProjectName = String(event.target.value || "");
+    state.substationDeviceSearch = "";
+    state.mainIntakeDeviceSearch = "";
+    substationDeviceSearch.value = "";
+    mainIntakeDeviceSearch.value = "";
+    resetReportLinkForm();
     await loadConfigDevices();
   });
 
@@ -368,6 +433,16 @@ function bindEvents() {
     renderConfigFilteredControls();
   });
 
+  substationDeviceSearch.addEventListener("input", (event) => {
+    state.substationDeviceSearch = String(event.target.value || "");
+    renderCompactMappingDeviceList("substation");
+  });
+
+  mainIntakeDeviceSearch.addEventListener("input", (event) => {
+    state.mainIntakeDeviceSearch = String(event.target.value || "");
+    renderCompactMappingDeviceList("main-intake");
+  });
+
   if (monthlyThresholdMonth) {
     monthlyThresholdMonth.addEventListener("change", updateMonthlyThresholdHint);
   }
@@ -376,7 +451,7 @@ function bindEvents() {
     getFilteredConfigDevices().forEach((device) => {
       state.configSelectedDeviceIds.add(device.devid);
     });
-    renderConfigDeviceList();
+    renderConfigDeviceSelectionViews();
     updateConfigMetricCurrentThresholds();
   });
 
@@ -384,8 +459,21 @@ function bindEvents() {
     getFilteredConfigDevices().forEach((device) => {
       state.configSelectedDeviceIds.delete(device.devid);
     });
-    renderConfigDeviceList();
+    renderConfigDeviceSelectionViews();
     updateConfigMetricCurrentThresholds();
+  });
+
+  selectAllSubstationDevicesButton.addEventListener("click", () => {
+    setCompactFilteredDeviceSelection("substation", true);
+  });
+  clearSubstationDevicesButton.addEventListener("click", () => {
+    setCompactFilteredDeviceSelection("substation", false);
+  });
+  selectAllMainIntakeDevicesButton.addEventListener("click", () => {
+    setCompactFilteredDeviceSelection("main-intake", true);
+  });
+  clearMainIntakeDevicesButton.addEventListener("click", () => {
+    setCompactFilteredDeviceSelection("main-intake", false);
   });
 
   addSubstationButton.addEventListener("click", addSubstationForConfigProject);
@@ -411,6 +499,21 @@ function bindEvents() {
     resetConfigSelectionButton.addEventListener("click", clearThresholdConfigForSelectedDevices);
   }
   addTransformerMappingButton.addEventListener("click", saveTransformerMapping);
+  reportLinkSlugInput.addEventListener("input", () => {
+    state.reportLinkSlugEdited = true;
+  });
+  reportLinkSlugInput.addEventListener("blur", () => {
+    reportLinkSlugInput.value = slugifyReportLinkPart(reportLinkSlugInput.value);
+  });
+  reportLinkGroupTypeSelect.addEventListener("change", () => {
+    renderReportLinkGroupOptions("");
+    suggestReportLinkSlug();
+  });
+  reportLinkGroupSelect.addEventListener("change", suggestReportLinkSlug);
+  reportLinkSideSelect.addEventListener("change", suggestReportLinkSlug);
+  reportLinkRangeSelect.addEventListener("change", renderReportLinkCustomDates);
+  saveReportLinkButton.addEventListener("click", saveReportLink);
+  cancelReportLinkEditButton.addEventListener("click", resetReportLinkForm);
 
   generateReportButton.addEventListener("click", onGenerateReport);
   exportReportButton.addEventListener("click", onExportReport);
@@ -676,6 +779,35 @@ function renderActivePage() {
   }
 }
 
+function getConfigModuleEntries() {
+  return [
+    { id: "devices", tab: deviceManagementTab, panel: deviceManagementPanel },
+    { id: "substations", tab: substationManagementTab, panel: substationManagementPanel },
+    { id: "main-intakes", tab: mainIntakeManagementTab, panel: mainIntakeManagementPanel },
+    { id: "transformers", tab: transformerMappingTab, panel: transformerMappingPanel },
+    { id: "report-links", tab: reportLinksTab, panel: reportLinksPanel },
+  ];
+}
+
+function setActiveConfigModule(moduleId) {
+  if (!getConfigModuleEntries().some((entry) => entry.id === moduleId)) {
+    return;
+  }
+  state.activeConfigModule = moduleId;
+  renderConfigModuleTabs();
+}
+
+function renderConfigModuleTabs() {
+  getConfigModuleEntries().forEach((entry) => {
+    const active = entry.id === state.activeConfigModule;
+    entry.tab.classList.toggle("active", active);
+    entry.tab.setAttribute("aria-selected", String(active));
+    entry.tab.tabIndex = active ? 0 : -1;
+    entry.panel.classList.toggle("hidden", !active);
+    entry.panel.setAttribute("aria-hidden", String(!active));
+  });
+}
+
 function renderConfigPage() {
   const projectLabel = state.configProjectName
     ? getProjectDisplayName(state.configProjectName)
@@ -683,11 +815,13 @@ function renderConfigPage() {
   configProjectSummary.textContent = state.configDevices.length
     ? `${projectLabel} | ${state.configDevices.length} device(s)`
     : "Select a project to configure device mappings.";
+  renderConfigModuleTabs();
   updateMonthlyThresholdHint();
   renderSubstationControls();
   renderConfigFilteredControls();
   updateConfigMetricCurrentThresholds();
   renderTransformerMappingList();
+  renderReportLinkControls();
 }
 
 function normalizeSubstationName(value) {
@@ -1364,6 +1498,307 @@ function renderSubstationControls() {
   });
 }
 
+function slugifyReportLinkPart(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/g, "");
+}
+
+function getReportLinkGroups(groupType = reportLinkGroupTypeSelect.value) {
+  return groupType === "main-intake"
+    ? getProjectMainIntakes(state.configProjectName)
+    : getProjectSubstations(state.configProjectName);
+}
+
+function renderReportLinkGroupOptions(selectedGroupId = reportLinkGroupSelect.value) {
+  const safeSelectedGroupId = String(selectedGroupId || "").trim();
+  const groups = getReportLinkGroups();
+  reportLinkGroupSelect.innerHTML = [
+    '<option value="">Select group</option>',
+    ...groups.map((group) => {
+      const groupId = String(group?.id || "");
+      const selected = groupId === safeSelectedGroupId ? " selected" : "";
+      return `<option value="${escapeHtml(groupId)}"${selected}>${escapeHtml(group?.name || groupId)}</option>`;
+    }),
+  ].join("");
+}
+
+function suggestReportLinkSlug() {
+  if (state.reportLinkSlugEdited || state.editingReportLinkSlug) {
+    return;
+  }
+  const group = getReportLinkGroups().find(
+    (item) => String(item?.id || "") === String(reportLinkGroupSelect.value || "")
+  );
+  if (!group) {
+    reportLinkSlugInput.value = "";
+    return;
+  }
+  reportLinkSlugInput.value = slugifyReportLinkPart(
+    `${getProjectDisplayName(state.configProjectName)}-${group.name || group.id}-${reportLinkSideSelect.value}`
+  );
+}
+
+function renderReportLinkCustomDates() {
+  reportLinkCustomDates.classList.toggle("hidden", reportLinkRangeSelect.value !== "custom");
+}
+
+function normalizeReportLinkRecord(link) {
+  return {
+    id: String(link?.id || ""),
+    slug: String(link?.slug || ""),
+    projectName: String(link?.projectName || ""),
+    groupType: String(link?.groupType || ""),
+    groupId: String(link?.groupId || ""),
+    groupName: String(link?.groupName || ""),
+    side: normalizeElectricalSide(link?.side),
+    range: String(link?.range || "today"),
+    startDate: String(link?.startDate || ""),
+    endDate: String(link?.endDate || ""),
+    reportType: String(link?.reportType || "histvalues"),
+    autorun: Boolean(link?.autorun),
+    enabled: Boolean(link?.enabled),
+  };
+}
+
+async function loadReportLinks(projectName = state.configProjectName) {
+  const safeProjectName = String(projectName || "").trim();
+  if (!safeProjectName) {
+    state.reportLinks = [];
+    return [];
+  }
+  const payload = await requestJson(buildAppApiPath("projects", safeProjectName, "report-links"));
+  state.reportLinks = (Array.isArray(payload) ? payload : [])
+    .map(normalizeReportLinkRecord)
+    .sort((left, right) => compareTextValues(left.slug, right.slug));
+  return state.reportLinks;
+}
+
+function buildShortReportUrl(slug) {
+  return `${window.location.origin}/r/${encodeURIComponent(String(slug || ""))}`;
+}
+
+function getReportLinkRangeLabel(link) {
+  const labels = {
+    today: "Today",
+    yesterday: "Yesterday",
+    last7: "Last 7 Days",
+    last30: "Last 30 Days",
+    last365: "Last 365 Days",
+    lastyear: "Last Year",
+  };
+  if (link.range === "custom") {
+    return `${link.startDate || "?"} to ${link.endDate || "?"}`;
+  }
+  return labels[link.range] || link.range;
+}
+
+function makeReportLinkAction(label, handler, { disabled = false } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary-button";
+  button.textContent = label;
+  button.disabled = disabled;
+  button.addEventListener("click", handler);
+  return button;
+}
+
+function renderReportLinkList() {
+  reportLinkCount.textContent = `${state.reportLinks.length} link(s)`;
+  reportLinkList.innerHTML = "";
+  if (!state.configProjectName) {
+    reportLinkList.innerHTML = '<div class="config-empty">Select a project before managing report links.</div>';
+    return;
+  }
+  if (!state.reportLinks.length) {
+    reportLinkList.innerHTML = '<div class="config-empty">No short report links configured for this project.</div>';
+    return;
+  }
+
+  state.reportLinks.forEach((link) => {
+    const row = document.createElement("div");
+    row.className = `report-link-row${link.enabled ? "" : " report-link-disabled"}`;
+
+    const identity = document.createElement("div");
+    const url = document.createElement("div");
+    url.className = "report-link-url";
+    url.textContent = `/r/${link.slug}`;
+    const stateText = document.createElement("div");
+    stateText.className = "config-device-subtext";
+    stateText.textContent = link.enabled ? "Enabled" : "Disabled";
+    identity.append(url, stateText);
+
+    const details = document.createElement("div");
+    const groupLabel = document.createElement("div");
+    groupLabel.className = "config-device-name";
+    groupLabel.textContent = `${link.groupName || "Missing group"} | ${link.side}`;
+    const options = document.createElement("div");
+    options.className = "config-device-subtext";
+    options.textContent = `${link.groupType === "main-intake" ? "Main Intake" : "Substation"} | ${getReportLinkRangeLabel(link)} | ${link.reportType}${link.autorun ? " | Auto-run" : ""}`;
+    details.append(groupLabel, options);
+
+    const actions = document.createElement("div");
+    actions.className = "report-link-actions";
+    actions.append(
+      makeReportLinkAction("Copy", () => copyReportLink(link)),
+      makeReportLinkAction("Open", () => window.open(buildShortReportUrl(link.slug), "_blank", "noopener"), {
+        disabled: !link.enabled,
+      }),
+      makeReportLinkAction("Edit", () => editReportLink(link)),
+      makeReportLinkAction(link.enabled ? "Disable" : "Enable", () => toggleReportLink(link)),
+      makeReportLinkAction("Delete", () => removeReportLink(link))
+    );
+
+    row.append(identity, details, actions);
+    reportLinkList.appendChild(row);
+  });
+}
+
+function renderReportLinkControls() {
+  renderReportLinkGroupOptions();
+  renderReportLinkCustomDates();
+  suggestReportLinkSlug();
+  renderReportLinkList();
+}
+
+function resetReportLinkForm() {
+  state.editingReportLinkSlug = "";
+  state.reportLinkSlugEdited = false;
+  reportLinkSlugInput.value = "";
+  reportLinkGroupTypeSelect.value = "substation";
+  reportLinkSideSelect.value = "HT";
+  reportLinkRangeSelect.value = "today";
+  reportLinkTypeSelect.value = "histvalues";
+  reportLinkStartDate.value = "";
+  reportLinkEndDate.value = "";
+  reportLinkAutorunCheckbox.checked = true;
+  reportLinkEnabledCheckbox.checked = true;
+  saveReportLinkButton.textContent = "Create Link";
+  cancelReportLinkEditButton.classList.add("hidden");
+  renderReportLinkControls();
+}
+
+function editReportLink(link) {
+  state.editingReportLinkSlug = link.slug;
+  state.reportLinkSlugEdited = true;
+  reportLinkSlugInput.value = link.slug;
+  reportLinkGroupTypeSelect.value = link.groupType;
+  renderReportLinkGroupOptions(link.groupId);
+  reportLinkGroupSelect.value = link.groupId;
+  reportLinkSideSelect.value = link.side;
+  reportLinkRangeSelect.value = link.range;
+  reportLinkTypeSelect.value = link.reportType;
+  reportLinkStartDate.value = link.startDate;
+  reportLinkEndDate.value = link.endDate;
+  reportLinkAutorunCheckbox.checked = link.autorun;
+  reportLinkEnabledCheckbox.checked = link.enabled;
+  saveReportLinkButton.textContent = "Save Link";
+  cancelReportLinkEditButton.classList.remove("hidden");
+  renderReportLinkCustomDates();
+  reportLinkSlugInput.focus();
+}
+
+function getReportLinkFormPayload() {
+  return {
+    slug: slugifyReportLinkPart(reportLinkSlugInput.value),
+    projectName: state.configProjectName,
+    groupType: reportLinkGroupTypeSelect.value,
+    groupId: reportLinkGroupSelect.value,
+    side: reportLinkSideSelect.value,
+    range: reportLinkRangeSelect.value,
+    startDate: reportLinkStartDate.value,
+    endDate: reportLinkEndDate.value,
+    reportType: reportLinkTypeSelect.value,
+    autorun: reportLinkAutorunCheckbox.checked,
+    enabled: reportLinkEnabledCheckbox.checked,
+  };
+}
+
+async function saveReportLink() {
+  const payload = getReportLinkFormPayload();
+  if (!payload.projectName || !payload.slug || !payload.groupId || !payload.side) {
+    setStatus("Select a project, group, side, and short link name.", true);
+    return;
+  }
+  if (payload.range === "custom" && (!payload.startDate || !payload.endDate)) {
+    setStatus("Custom report links require a start and end date.", true);
+    return;
+  }
+
+  const editingSlug = state.editingReportLinkSlug;
+  try {
+    await requestJson(
+      editingSlug
+        ? buildAppApiPath("report-links", editingSlug)
+        : buildAppApiPath("projects", state.configProjectName, "report-links"),
+      { method: editingSlug ? "PUT" : "POST", body: payload }
+    );
+    await loadReportLinks(state.configProjectName);
+    resetReportLinkForm();
+    setStatus(`Report link /r/${payload.slug} ${editingSlug ? "updated" : "created"}.`);
+  } catch (error) {
+    setStatus(`Failed to save report link. ${error.message}`, true);
+  }
+}
+
+async function copyReportLink(link) {
+  const url = buildShortReportUrl(link.slug);
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const input = document.createElement("textarea");
+      input.value = url;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+    }
+    setStatus(`Copied ${url}`);
+  } catch (error) {
+    setStatus(`Unable to copy the link. ${error.message}`, true);
+  }
+}
+
+async function toggleReportLink(link) {
+  try {
+    await requestJson(buildAppApiPath("report-links", link.slug), {
+      method: "PUT",
+      body: { ...link, enabled: !link.enabled },
+    });
+    await loadReportLinks(state.configProjectName);
+    renderReportLinkList();
+    setStatus(`Report link /r/${link.slug} ${link.enabled ? "disabled" : "enabled"}.`);
+  } catch (error) {
+    setStatus(`Failed to update report link. ${error.message}`, true);
+  }
+}
+
+async function removeReportLink(link) {
+  if (!window.confirm(`Delete report link /r/${link.slug}?`)) {
+    return;
+  }
+  try {
+    await requestJson(buildAppApiPath("report-links", link.slug), { method: "DELETE" });
+    await loadReportLinks(state.configProjectName);
+    if (state.editingReportLinkSlug === link.slug) {
+      resetReportLinkForm();
+    } else {
+      renderReportLinkList();
+    }
+    setStatus(`Report link /r/${link.slug} deleted.`);
+  } catch (error) {
+    setStatus(`Failed to delete report link. ${error.message}`, true);
+  }
+}
+
 async function addSubstationForConfigProject() {
   if (!state.configProjectName) {
     setStatus("Select a project on the Configuration page before adding a substation.", true);
@@ -1564,6 +1999,7 @@ async function removeSubstationDefinition(projectName, substationId) {
       safeProjectName,
       normalizeSubstationApiConfig(safeProjectName, payload)
     );
+    await loadReportLinks(safeProjectName);
     syncLoadedDevicesForProject(safeProjectName);
     renderConfigPage();
     setStatus(`Substation "${removedSubstation?.name || safeSubstationId}" removed.`);
@@ -1589,6 +2025,7 @@ async function removeMainIntakeDefinition(projectName, mainIntakeId) {
       safeProjectName,
       normalizeSubstationApiConfig(safeProjectName, payload)
     );
+    await loadReportLinks(safeProjectName);
     syncLoadedDevicesForProject(safeProjectName);
     renderConfigPage();
     setStatus(`Main intake "${removedMainIntake?.name || safeMainIntakeId}" removed.`);
@@ -1680,6 +2117,104 @@ function getFilteredConfigDevices() {
   });
 }
 
+function getFilteredCompactMappingDevices(mappingType) {
+  const searchValue = mappingType === "main-intake"
+    ? state.mainIntakeDeviceSearch
+    : state.substationDeviceSearch;
+  const searchFilter = String(searchValue || "").trim().toLowerCase();
+  return (Array.isArray(state.configDevices) ? state.configDevices : []).filter((device) => {
+    const deviceId = String(device?.devid || "");
+    const reportLabel = String(device?.customLabel || "");
+    const mappingText = mappingType === "main-intake"
+      ? `${getProjectAssignedMainIntake(state.configProjectName, deviceId)} ${getProjectAssignedMainIntakeSide(state.configProjectName, deviceId)}`
+      : `${getProjectAssignedSubstation(state.configProjectName, deviceId)} ${getProjectAssignedSubstationSide(state.configProjectName, deviceId)}`;
+    const searchableText = `${device?.name || ""} ${deviceId} ${reportLabel} ${mappingText}`.toLowerCase();
+    return !searchFilter || searchableText.includes(searchFilter);
+  });
+}
+
+function renderCompactMappingDeviceList(mappingType) {
+  const isMainIntake = mappingType === "main-intake";
+  const listElement = isMainIntake ? mainIntakeDeviceList : substationDeviceList;
+  const countElement = isMainIntake ? mainIntakeDeviceCount : substationDeviceCount;
+  const filteredDevices = getFilteredCompactMappingDevices(mappingType);
+  countElement.textContent = `${filteredDevices.length} device(s)`;
+  listElement.innerHTML = "";
+
+  if (!filteredDevices.length) {
+    listElement.innerHTML = '<div class="config-empty">No devices match the current filter.</div>';
+    return;
+  }
+
+  filteredDevices.forEach((device) => {
+    const deviceId = String(device?.devid || "");
+    const reportLabel = String(device?.customLabel || "").trim();
+    const groupName = isMainIntake
+      ? getProjectAssignedMainIntake(state.configProjectName, deviceId)
+      : getProjectAssignedSubstation(state.configProjectName, deviceId);
+    const side = isMainIntake
+      ? getProjectAssignedMainIntakeSide(state.configProjectName, deviceId)
+      : getProjectAssignedSubstationSide(state.configProjectName, deviceId);
+
+    const row = document.createElement("label");
+    row.className = `compact-device-row${state.configSelectedDeviceIds.has(deviceId) ? " selected" : ""}`;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = state.configSelectedDeviceIds.has(deviceId);
+    checkbox.addEventListener("change", (event) => {
+      if (event.target.checked) {
+        state.configSelectedDeviceIds.add(deviceId);
+      } else {
+        state.configSelectedDeviceIds.delete(deviceId);
+      }
+      renderConfigDeviceSelectionViews();
+      updateConfigMetricCurrentThresholds();
+    });
+
+    const identity = document.createElement("span");
+    identity.className = "compact-device-identity";
+    const name = document.createElement("span");
+    name.className = "config-device-name";
+    name.textContent = String(device?.name || deviceId);
+    const id = document.createElement("span");
+    id.className = "config-device-subtext";
+    id.textContent = deviceId;
+    identity.append(name, id);
+
+    const details = document.createElement("span");
+    details.className = "compact-device-details";
+    const label = document.createElement("span");
+    label.className = "compact-report-label";
+    label.textContent = reportLabel || "No report label";
+    const mapping = document.createElement("span");
+    mapping.className = "config-device-subtext";
+    mapping.textContent = `${groupName || "Unassigned"}${side ? ` | ${side}` : ""}`;
+    details.append(label, mapping);
+
+    row.append(checkbox, identity, details);
+    listElement.appendChild(row);
+  });
+}
+
+function renderConfigDeviceSelectionViews() {
+  renderConfigDeviceList();
+  renderCompactMappingDeviceList("substation");
+  renderCompactMappingDeviceList("main-intake");
+}
+
+function setCompactFilteredDeviceSelection(mappingType, selected) {
+  getFilteredCompactMappingDevices(mappingType).forEach((device) => {
+    if (selected) {
+      state.configSelectedDeviceIds.add(device.devid);
+    } else {
+      state.configSelectedDeviceIds.delete(device.devid);
+    }
+  });
+  renderConfigDeviceSelectionViews();
+  updateConfigMetricCurrentThresholds();
+}
+
 function renderConfigDeviceList() {
   const filteredDevices = getFilteredConfigDevices();
   configDeviceCount.textContent = `${filteredDevices.length} filtered device(s)`;
@@ -1703,7 +2238,7 @@ function renderConfigDeviceList() {
       } else {
         state.configSelectedDeviceIds.delete(device.devid);
       }
-      renderConfigDeviceList();
+      renderConfigDeviceSelectionViews();
       updateConfigMetricCurrentThresholds();
     });
 
@@ -1888,7 +2423,7 @@ function renderConfigDeviceList() {
 }
 
 function renderConfigFilteredControls() {
-  renderConfigDeviceList();
+  renderConfigDeviceSelectionViews();
   renderTransformerDeviceOptions();
   updateConfigMetricCurrentThresholds();
 }
@@ -2471,6 +3006,34 @@ async function loadProjects() {
   }
 }
 
+function parseShortReportLinkSlug(pathname) {
+  const match = String(pathname || "").match(/^\/r\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function resolveShortReportLinkRequest(pathname) {
+  const slug = parseShortReportLinkSlug(pathname);
+  if (!slug) {
+    return null;
+  }
+  const link = normalizeReportLinkRecord(
+    await requestJson(buildAppApiPath("report-links", slug))
+  );
+  return {
+    project: link.projectName,
+    group: link.groupId,
+    groupType: link.groupType,
+    invalidGroupType: false,
+    side: link.side,
+    rawSide: link.side,
+    range: link.range,
+    startDate: link.startDate,
+    endDate: link.endDate,
+    type: link.reportType,
+    autorun: link.autorun,
+  };
+}
+
 function parseReportLinkRequest(search) {
   const params = new URLSearchParams(String(search || ""));
   const group = String(params.get("group") || "").trim();
@@ -2884,6 +3447,7 @@ async function loadConfigDevices() {
 
   if (!state.configProjectName) {
     state.configDevices = [];
+    state.reportLinks = [];
     renderConfigPage();
     return;
   }
@@ -2895,6 +3459,12 @@ async function loadConfigDevices() {
     } catch (error) {
       delete state.substationMappingsByProject[state.configProjectName];
       mappingWarning = ` App metadata DB unavailable: ${error.message}`;
+    }
+    try {
+      await loadReportLinks(state.configProjectName);
+    } catch (error) {
+      state.reportLinks = [];
+      mappingWarning += ` Report links unavailable: ${error.message}`;
     }
     const devices = await fetchProjectDevices(state.configProjectName);
     state.configDevices = applyProjectSubstationMappings(devices, state.configProjectName);

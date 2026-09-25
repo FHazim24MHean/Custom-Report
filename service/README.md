@@ -13,7 +13,7 @@ npm run service:package
 The build downloads Node.js from `nodejs.org`, verifies its published SHA-256 checksum, downloads WinSW from its official GitHub release, installs production dependencies, and creates:
 
 ```text
-dist\CustomReportService-1.1.0.zip
+dist\CustomReportService-1.2.0.zip
 ```
 
 Override versions when preparing a new release:
@@ -83,6 +83,8 @@ The updater:
 When upgrading an installation that predates report login, the updater prompts for a report username and password before stopping the old service.
 
 Configuration, JSON metadata, PostgreSQL data, and logs are not replaced during an update.
+
+Saved short report links under `/r/{link-name}` use the same JSON or PostgreSQL metadata store as device group mappings, so they also remain intact during an update.
 
 Backups are retained under:
 

@@ -297,6 +297,127 @@ h1 {
   margin: 0 0 8px;
 }
 
+.config-module-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+  overflow-x: auto;
+}
+
+.config-module-tab {
+  flex: 1 0 auto;
+  min-width: 150px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.config-module-tab:hover {
+  border-color: #b7d8d4;
+  color: var(--accent-2);
+}
+
+.config-module-tab.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(15, 118, 110, 0.18);
+}
+
+.config-module-panel {
+  min-width: 0;
+}
+
+.config-module-filter {
+  margin-top: 16px;
+}
+
+.device-management-list {
+  min-height: 440px;
+  max-height: calc(100vh - 370px);
+}
+
+.config-management-grid {
+  display: grid;
+  grid-template-columns: minmax(460px, 1.15fr) minmax(360px, 0.85fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.config-management-grid > .config-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 580px;
+}
+
+.config-management-grid > .config-card > .config-device-list {
+  flex: 1 1 auto;
+}
+
+.compact-device-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.compact-selection-bar {
+  margin-top: 10px;
+}
+
+.compact-device-list {
+  margin-top: 0;
+  min-height: 360px;
+}
+
+.compact-device-row {
+  display: grid;
+  grid-template-columns: auto minmax(130px, 1fr) minmax(150px, 0.9fr);
+  gap: 11px;
+  align-items: center;
+  padding: 11px 12px;
+  border-bottom: 1px solid #e3e8f1;
+  cursor: pointer;
+}
+
+.compact-device-row:last-child {
+  border-bottom: 0;
+}
+
+.compact-device-row:hover {
+  background: #f5faf9;
+}
+
+.compact-device-row.selected {
+  background: #e8f7f5;
+}
+
+.compact-device-identity,
+.compact-device-details {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.compact-report-label {
+  overflow: hidden;
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .config-copy,
 .config-project-summary {
   margin: 0;
@@ -358,6 +479,112 @@ h1 {
   display: flex;
   gap: 10px;
   margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.report-links-card {
+  overflow: hidden;
+}
+
+.report-links-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.report-link-form {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.4fr) repeat(5, minmax(130px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.report-link-slug-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.report-link-slug-control > span {
+  padding: 9px 0 9px 11px;
+  color: var(--muted);
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+}
+
+.report-link-slug-control .input-control {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.report-link-custom-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(170px, 240px));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.report-link-custom-dates.hidden {
+  display: none;
+}
+
+.report-link-options {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.report-link-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.report-link-list {
+  margin-top: 16px;
+  min-height: 64px;
+  max-height: 360px;
+}
+
+.report-link-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.1fr) minmax(180px, 1fr) minmax(160px, auto);
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e3e8f1;
+}
+
+.report-link-row:last-child {
+  border-bottom: 0;
+}
+
+.report-link-url {
+  color: var(--accent-2);
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.report-link-disabled {
+  opacity: 0.58;
+}
+
+.report-link-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
   flex-wrap: wrap;
 }
 
@@ -661,9 +888,39 @@ h1 {
   }
 
   .config-grid,
+  .config-management-grid,
   .config-filter-bar,
-  .config-metric-grid {
+  .config-metric-grid,
+  .report-link-form,
+  .report-link-custom-dates,
+  .report-link-row {
     grid-template-columns: 1fr;
+  }
+
+  .report-link-actions {
+    justify-content: flex-start;
+  }
+
+  .config-module-tab {
+    min-width: max-content;
+  }
+
+  .config-management-grid > .config-card {
+    min-height: 0;
+  }
+
+  .compact-device-list,
+  .device-management-list {
+    min-height: 320px;
+    max-height: 520px;
+  }
+
+  .compact-device-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .compact-device-details {
+    grid-column: 2;
   }
 
   .config-header-card {
@@ -722,6 +979,10 @@ h1 {
   .export-group {
     grid-column: auto;
   }
+
+  .report-link-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) and (min-width: 641px) {
@@ -735,6 +996,10 @@ h1 {
   }
 
   .config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .config-management-grid {
     grid-template-columns: 1fr;
   }
 }

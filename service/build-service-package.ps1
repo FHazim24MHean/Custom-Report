@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "1.1.0",
+  [string]$Version = "1.2.0",
   [string]$NodeVersion = "24.21.0",
   [string]$WinSWVersion = "2.12.0",
   [string]$OutputDirectory = "",
