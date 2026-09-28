@@ -46,7 +46,7 @@ npm start
 
 Then open:
 
-`http://localhost:5500`
+`http://localhost:8081`
 
 ## Windows Service Package
 
@@ -169,7 +169,7 @@ The app builds paths as:
 Use **Configuration > Report Links** to create a stable link for a project, saved group, electrical side, date range, and report type. For example:
 
 ```text
-http://REPORT-SERVER:5500/r/perodua-ss12-ht
+http://REPORT-SERVER:8081/r/perodua-ss12-ht
 ```
 
 The link remains protected by the report login. If sign-in is required, the user returns to the same short URL afterward. Device IDs are not stored in the link; the application resolves the group's current assignments whenever the link is opened.
@@ -181,7 +181,7 @@ Short link names are globally unique and contain lowercase letters, numbers, and
 After assigning devices to a Substation or Main Intake and setting each assignment's electrical side, a dashboard can open a prefiltered report with:
 
 ```text
-http://REPORT-SERVER:5500/?project=PROJECT&group=GROUP&groupType=substation&side=HT&range=today&autorun=1
+http://REPORT-SERVER:8081/?project=PROJECT&group=GROUP&groupType=substation&side=HT&range=today&autorun=1
 ```
 
 Parameters:
@@ -198,7 +198,7 @@ Parameters:
 Example:
 
 ```text
-http://localhost:5500/?project=Electrica%20Perodua%202026&group=SS12&groupType=substation&side=HT&range=today&autorun=1
+http://localhost:8081/?project=Electrica%20Perodua%202026&group=SS12&groupType=substation&side=HT&range=today&autorun=1
 ```
 
 For `histenergy`, query parameters are sent as:

@@ -13,13 +13,13 @@ npm run service:package
 The build downloads Node.js from `nodejs.org`, verifies its published SHA-256 checksum, downloads WinSW from its official GitHub release, installs production dependencies, and creates:
 
 ```text
-dist\CustomReportService-1.2.0.zip
+dist\CustomReportService-1.2.1.zip
 ```
 
 Override versions when preparing a new release:
 
 ```powershell
-.\service\build-service-package.ps1 -Version 1.2.0 -NodeVersion 24.21.0
+.\service\build-service-package.ps1 -Version 1.3.0 -NodeVersion 24.21.0
 ```
 
 ## Install on the host
@@ -31,6 +31,8 @@ Extract the ZIP, open PowerShell as Administrator in the extracted folder, then 
 ```
 
 Installation prompts for a report username and password. The service stores only a salted password hash. Everyone using this account can view reports and edit Configuration, so distribute it only to authorized staff.
+
+The report service always listens on TCP port `8081`. With `-OpenFirewall`, the installer opens that port on Domain and Private network profiles.
 
 The default installation path is:
 
@@ -81,6 +83,8 @@ The updater:
 7. Restores the previous release automatically if startup or the health check fails.
 
 When upgrading an installation that predates report login, the updater prompts for a report username and password before stopping the old service.
+
+The updater migrates an existing installation's `PORT` setting to `8081`.
 
 Configuration, JSON metadata, PostgreSQL data, and logs are not replaced during an update.
 

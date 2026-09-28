@@ -29,6 +29,15 @@ if (-not (Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue)) 
 }
 
 $environmentContent = Get-Content -LiteralPath $environmentFile -Raw
+$previousEnvironmentContent = $environmentContent
+if ($environmentContent -match '(?m)^PORT=') {
+  $environmentContent = [regex]::Replace($environmentContent, '(?m)^PORT=.*$', 'PORT=8081')
+} else {
+  $environmentContent = "PORT=8081`n$environmentContent"
+}
+if ($environmentContent -ne $previousEnvironmentContent) {
+  Write-Utf8FileWithoutBom -Path $environmentFile -Content $environmentContent
+}
 if ($environmentContent -notmatch '(?m)^REPORT_USERNAME=.+$' -or
     $environmentContent -notmatch '(?m)^REPORT_PASSWORD_HASH=scrypt:[a-f0-9]{32}:[a-f0-9]{128}$') {
   if ($environmentContent -notmatch '(?m)^REPORT_USERNAME=') {

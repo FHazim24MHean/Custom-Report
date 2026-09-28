@@ -2,15 +2,22 @@
 param(
   [string]$InstallRoot = (Join-Path $env:ProgramData "CustomReportGenerator"),
   [string]$ApiOrigin = "http://gridvisdemo.site:8080",
-  [ValidateRange(1, 65535)][int]$Port = 5500,
   [switch]$OpenFirewall
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "service-common.ps1")
+$Port = 8081
 
 Assert-Administrator
 $InstallRoot = Assert-SafeInstallRoot $InstallRoot
+$parsedApiOrigin = $null
+if (-not [Uri]::TryCreate($ApiOrigin, [UriKind]::Absolute, [ref]$parsedApiOrigin) -or
+    $parsedApiOrigin.Scheme -notin @("http", "https") -or
+    -not $parsedApiOrigin.Host) {
+  throw 'ApiOrigin must be a plain absolute URL such as "http://192.228.0.135:8080". Do not paste Markdown link syntax.'
+}
+$ApiOrigin = $ApiOrigin.TrimEnd('/')
 $payloadRoot = Join-Path $PSScriptRoot "payload"
 $serviceExecutableSource = Join-Path $PSScriptRoot "CustomReportService.exe"
 $serviceConfigSource = Join-Path $PSScriptRoot "CustomReportService.xml"
@@ -51,12 +58,11 @@ $environmentFile = Join-Path $InstallRoot "config\service.env"
 if (-not (Test-Path -LiteralPath $environmentFile)) {
   $metadataPath = Join-Path $InstallRoot "data\app-metadata.json"
   $environmentTemplate = Get-Content -LiteralPath (Join-Path $PSScriptRoot "service.env.example") -Raw
-  $environmentContent = $environmentTemplate
-    .Replace("__PORT__", [string]$Port)
-    .Replace("__API_ORIGIN__", $ApiOrigin.TrimEnd('/'))
-    .Replace("__APP_METADATA_PATH__", $metadataPath)
-    .Replace("__REPORT_USERNAME__", "")
-    .Replace("__REPORT_PASSWORD_HASH__", "")
+  $environmentContent = $environmentTemplate.Replace("__PORT__", [string]$Port)
+  $environmentContent = $environmentContent.Replace("__API_ORIGIN__", $ApiOrigin)
+  $environmentContent = $environmentContent.Replace("__APP_METADATA_PATH__", $metadataPath)
+  $environmentContent = $environmentContent.Replace("__REPORT_USERNAME__", "")
+  $environmentContent = $environmentContent.Replace("__REPORT_PASSWORD_HASH__", "")
   Write-Utf8FileWithoutBom -Path $environmentFile -Content $environmentContent
 }
 

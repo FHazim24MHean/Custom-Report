@@ -7,7 +7,7 @@ const { Readable } = require("stream");
 
 loadEnvironmentFile(process.env.SERVICE_ENV_FILE);
 
-const PORT = Number(process.env.PORT || 5500);
+const PORT = Number(process.env.PORT || 8081);
 const API_ORIGIN = process.env.API_ORIGIN || "http://gridvisdemo.site:8080";
 const STATIC_ROOT = process.cwd();
 const APP_API_PREFIX = "/app-api";

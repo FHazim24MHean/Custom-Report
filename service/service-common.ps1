@@ -111,13 +111,13 @@ function Get-ConfiguredPort {
   param([Parameter(Mandatory = $true)][string]$EnvironmentFile)
 
   if (-not (Test-Path -LiteralPath $EnvironmentFile -PathType Leaf)) {
-    return 5500
+    return 8081
   }
   $portLine = Get-Content -LiteralPath $EnvironmentFile | Where-Object { $_ -match '^\s*PORT\s*=' } | Select-Object -First 1
   if ($portLine -and $portLine -match '^\s*PORT\s*=\s*(\d+)\s*$') {
     return [int]$Matches[1]
   }
-  return 5500
+  return 8081
 }
 
 function Set-ReportLoginCredential {
