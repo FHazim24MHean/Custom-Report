@@ -38,6 +38,17 @@ if (Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue) {
   throw "Service $($script:ServiceName) is already installed. Use update-service.ps1 for an existing installation."
 }
 
+$packageNode = Join-Path $payloadRoot "runtime\node.exe"
+foreach ($scriptPath in @(
+    (Join-Path $payloadRoot "app\server.js"),
+    (Join-Path $payloadRoot "app\app.js")
+  )) {
+  & $packageNode --check $scriptPath
+  if ($LASTEXITCODE -ne 0) {
+    throw "Service package validation failed for $scriptPath. Extract a fresh copy of the package and retry."
+  }
+}
+
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
 foreach ($directory in @("app", "runtime", "config", "data", "logs", "backups", "scripts")) {
   New-Item -ItemType Directory -Path (Join-Path $InstallRoot $directory) -Force | Out-Null
@@ -64,6 +75,20 @@ if (-not (Test-Path -LiteralPath $environmentFile)) {
   $environmentContent = $environmentContent.Replace("__REPORT_USERNAME__", "")
   $environmentContent = $environmentContent.Replace("__REPORT_PASSWORD_HASH__", "")
   Write-Utf8FileWithoutBom -Path $environmentFile -Content $environmentContent
+} else {
+  # A retry after a partial installation must honor the current command arguments.
+  $environmentContent = Get-Content -LiteralPath $environmentFile -Raw
+  if ($environmentContent -match '(?m)^PORT=') {
+    $environmentContent = [regex]::Replace($environmentContent, '(?m)^PORT=.*$', "PORT=$Port")
+  } else {
+    $environmentContent = "PORT=$Port`n$environmentContent"
+  }
+  if ($environmentContent -match '(?m)^API_ORIGIN=') {
+    $environmentContent = [regex]::Replace($environmentContent, '(?m)^API_ORIGIN=.*$', "API_ORIGIN=$ApiOrigin")
+  } else {
+    $environmentContent += "`nAPI_ORIGIN=$ApiOrigin`n"
+  }
+  Write-Utf8FileWithoutBom -Path $environmentFile -Content $environmentContent
 }
 
 if (-not ((Get-Content -LiteralPath $environmentFile -Raw) -match '(?m)^REPORT_USERNAME=.+$' -and
@@ -77,25 +102,43 @@ if (-not ((Get-Content -LiteralPath $environmentFile -Raw) -match '(?m)^REPORT_U
 Set-ServiceDirectoryPermissions -InstallRoot $InstallRoot
 
 $serviceExecutable = Join-Path $InstallRoot "CustomReportService.exe"
-& $serviceExecutable install
-if ($LASTEXITCODE -ne 0) {
-  throw "WinSW failed to install the service (exit code $LASTEXITCODE)."
-}
-& $serviceExecutable start
-if ($LASTEXITCODE -ne 0) {
-  throw "WinSW failed to start the service (exit code $LASTEXITCODE)."
-}
-
 $configuredPort = Get-ConfiguredPort -EnvironmentFile $environmentFile
-Wait-ServiceHealthy -Port $configuredPort | Out-Null
+$serviceInstalledByThisRun = $false
+try {
+  & $serviceExecutable install
+  if ($LASTEXITCODE -ne 0) {
+    throw "WinSW failed to install the service (exit code $LASTEXITCODE)."
+  }
+  $serviceInstalledByThisRun = $true
+
+  & $serviceExecutable start
+  if ($LASTEXITCODE -ne 0) {
+    throw "WinSW failed to start the service (exit code $LASTEXITCODE)."
+  }
+
+  Wait-ServiceHealthy -Port $configuredPort | Out-Null
+} catch {
+  $installError = $_.Exception.Message
+  if ($serviceInstalledByThisRun -or (Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue)) {
+    try { & $serviceExecutable stop | Out-Null } catch { }
+    try { & $serviceExecutable uninstall | Out-Null } catch { }
+  }
+  $logDirectory = Join-Path $InstallRoot "logs"
+  throw "Installation failed and the new service registration was rolled back. Review $logDirectory, then retry. Original error: $installError"
+}
 
 if ($OpenFirewall) {
   $ruleName = "Custom Report Generator TCP $configuredPort"
-  if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $configuredPort -Profile Domain,Private | Out-Null
+  try {
+    if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $configuredPort -Profile Domain,Private | Out-Null
+    }
+  } catch {
+    Write-Warning "The service is healthy, but the firewall rule could not be created: $($_.Exception.Message)"
   }
 }
 
 Write-Host "Service installed and healthy."
-Write-Host "URL: http://$env:COMPUTERNAME`:$configuredPort"
+Write-Host "Local URL: http://127.0.0.1`:$configuredPort"
+Write-Host "Network URL: http://<report-server-IP-or-DNS-name>`:$configuredPort"
 Write-Host "Configuration: $environmentFile"

@@ -93,18 +93,21 @@ function Wait-ServiceHealthy {
 
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   $healthUrl = "http://127.0.0.1:$Port/health"
+  $lastErrorMessage = "No response was received."
   do {
     try {
       $response = Invoke-RestMethod -Method Get -Uri $healthUrl -TimeoutSec 3
       if ($response.status -eq "ok") {
         return $response
       }
+      $lastErrorMessage = "The endpoint returned an unexpected response."
     } catch {
+      $lastErrorMessage = $_.Exception.Message
       Start-Sleep -Seconds 1
     }
   } while ([DateTime]::UtcNow -lt $deadline)
 
-  throw "Service did not become healthy at $healthUrl within $TimeoutSeconds seconds."
+  throw "Service did not become healthy at $healthUrl within $TimeoutSeconds seconds. Last error: $lastErrorMessage"
 }
 
 function Get-ConfiguredPort {

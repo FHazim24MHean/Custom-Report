@@ -1,10 +1,10 @@
 {
   "name": "custom-report-generator",
-  "version": "1.2.1",
+  "version": "1.2.3",
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "service:package": "powershell -NoProfile -ExecutionPolicy Bypass -File service/build-service-package.ps1"
+    "service:package": "node service/build-service-package.js"
   },
   "dependencies": {
     "pg": "^8.13.1"

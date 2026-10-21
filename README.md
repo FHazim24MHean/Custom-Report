@@ -56,7 +56,7 @@ The application can be packaged as a self-contained Windows Service with a porta
 npm run service:package
 ```
 
-Installation, updating, rollback, configuration, and uninstall instructions are in [`service/README.md`](service/README.md).
+Build-machine prerequisites, checksum verification, safe ZIP extraction, installation, updating, rollback, troubleshooting, configuration, and uninstall instructions are in [`service/README.md`](service/README.md). The generated ZIP also contains these instructions as its top-level `README.md`.
 
 The report page now requires its own login. Set `REPORT_USERNAME` and a salted `REPORT_PASSWORD_HASH` before starting `server.js`. The Windows service installer prompts for these; see `service/README.md`. The session uses an HttpOnly browser-session cookie rather than local storage.
 
