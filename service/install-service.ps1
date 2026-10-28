@@ -41,7 +41,7 @@ if (Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue) {
 $packageNode = Join-Path $payloadRoot "runtime\node.exe"
 foreach ($scriptPath in @(
     (Join-Path $payloadRoot "app\server.js"),
-    (Join-Path $payloadRoot "app\app.js")
+    (Join-Path $payloadRoot "app\app.mjs")
   )) {
   & $packageNode --check $scriptPath
   if ($LASTEXITCODE -ne 0) {

@@ -1,2 +1,7 @@
 dist/
 service/*.exe
+node_modules/
+*.log
+db/app-metadata.json
+*.bak
+*.tmp

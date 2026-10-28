@@ -64,6 +64,10 @@ function copyFile(source, destination) {
   fs.copyFileSync(source, destination);
 }
 
+function copyDirectory(source, destination) {
+  fs.cpSync(source, destination, { recursive: true });
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: sourceRoot,
@@ -147,23 +151,6 @@ async function downloadWithRetry(url, destination, maxAttempts = 3) {
   );
 }
 
-function installProductionDependencies(payloadApp) {
-  const npmCliCandidates = [
-    process.env.npm_execpath,
-    path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
-    process.env.APPDATA
-      ? path.join(process.env.APPDATA, "npm", "node_modules", "npm", "bin", "npm-cli.js")
-      : "",
-  ].filter(Boolean);
-  const npmCli = npmCliCandidates.find((candidate) => fs.existsSync(candidate));
-  if (!npmCli) {
-    throw new Error(
-      "Unable to locate npm-cli.js. Install the 64-bit Node.js distribution with npm, then retry.",
-    );
-  }
-  run(process.execPath, [npmCli, "ci", "--omit=dev", "--prefix", payloadApp]);
-}
-
 function createArchive(outputDirectory, archivePath) {
   const command = [
     "$ErrorActionPreference = 'Stop'",
@@ -204,7 +191,7 @@ async function main() {
   try {
     const appFiles = [
       "server.js",
-      "app.js",
+      "app.mjs",
       "index.html",
       "styles.css",
       "login.html",
@@ -217,12 +204,13 @@ async function main() {
     for (const fileName of appFiles) {
       copyFile(path.join(sourceRoot, fileName), path.join(payloadApp, fileName));
     }
-    copyFile(path.join(sourceRoot, "db", "schema.sql"), path.join(payloadApp, "db", "schema.sql"));
+    ["lib", "js", "vendor"].forEach((directoryName) => {
+      copyDirectory(path.join(sourceRoot, directoryName), path.join(payloadApp, directoryName));
+    });
 
     copyFile(process.execPath, path.join(payloadRuntime, "node.exe"));
     run(process.execPath, ["--check", path.join(payloadApp, "server.js")]);
-    run(process.execPath, ["--check", path.join(payloadApp, "app.js")]);
-    installProductionDependencies(payloadApp);
+    run(process.execPath, ["--check", path.join(payloadApp, "app.mjs")]);
 
     const winSwUrl = `https://github.com/winsw/winsw/releases/download/v${options.winswVersion}/${options.winswAsset}`;
     const winSwDestination = path.join(outputDirectory, "CustomReportService.exe");

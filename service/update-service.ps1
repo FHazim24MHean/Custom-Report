@@ -72,8 +72,8 @@ try {
   $stagedNode = Join-Path $stagingRoot "runtime\node.exe"
   & $stagedNode --check (Join-Path $stagingRoot "app\server.js")
   if ($LASTEXITCODE -ne 0) { throw "The staged server.js failed its syntax check." }
-  & $stagedNode --check (Join-Path $stagingRoot "app\app.js")
-  if ($LASTEXITCODE -ne 0) { throw "The staged app.js failed its syntax check." }
+  & $stagedNode --check (Join-Path $stagingRoot "app\app.mjs")
+  if ($LASTEXITCODE -ne 0) { throw "The staged app.mjs failed its syntax check." }
 
   $serviceTouched = $true
   & $serviceExecutable stop
