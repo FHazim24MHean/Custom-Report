@@ -12,6 +12,7 @@
 
     <div class="page-switcher" aria-label="Page navigation">
       <button id="showReportPageButton" class="page-switch-button active" type="button">Report</button>
+      <button id="showAnalyticsPageButton" class="page-switch-button" type="button">Analytics</button>
       <button id="showConfigPageButton" class="page-switch-button" type="button">Configuration</button>
     </div>
     <button id="logoutButton" class="secondary-button logout-button" type="button">Sign out</button>
@@ -132,6 +133,85 @@
       </section>
     </section>
 
+    </section>
+
+    <section id="analyticsPage" class="page-panel hidden" aria-label="Report analytics page">
+      <div class="analytics-shell">
+        <header class="analytics-header">
+          <div>
+            <p class="analytics-eyebrow">Operational overview</p>
+            <h2>Report Analytics</h2>
+            <p id="analyticsContext" class="config-copy">Generate a historical values report to calculate analytics.</p>
+          </div>
+          <label class="field-group analytics-scope-control" for="analyticsScopeSelect">
+            <span class="field-label">Electrical Group</span>
+            <select id="analyticsScopeSelect" class="input-control">
+              <option value="all">All report groups</option>
+            </select>
+          </label>
+        </header>
+
+        <section id="analyticsEmptyState" class="analytics-empty">
+          <strong>No report data available</strong>
+          <span>Return to Report, select the required devices and date range, then generate the report.</span>
+        </section>
+
+        <div id="analyticsContent" class="hidden">
+          <section id="analyticsKpis" class="analytics-kpi-grid" aria-label="Analytics summary"></section>
+
+          <section class="analytics-panel">
+            <div class="analytics-panel-heading">
+              <div>
+                <p class="analytics-eyebrow">Group comparison</p>
+                <h3>Compliance by Electrical Group</h3>
+              </div>
+              <span class="analytics-legend"><i class="analytics-dot pass"></i>Compliance rate includes amber warnings</span>
+            </div>
+            <div class="table-wrap">
+              <table class="report-table analytics-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Group</th>
+                    <th>Devices</th>
+                    <th>Readings</th>
+                    <th>Pass</th>
+                    <th>Warning</th>
+                    <th>Failed</th>
+                    <th>Compliance</th>
+                    <th>PQ Events</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsGroupTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="analytics-panel">
+            <div class="analytics-panel-heading">
+              <div>
+                <p class="analytics-eyebrow">Parameter performance</p>
+                <h3>Metric Health</h3>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="report-table analytics-table">
+                <thead>
+                  <tr>
+                    <th>Parameter</th>
+                    <th>Pass</th>
+                    <th>Warning</th>
+                    <th>Failed</th>
+                    <th>No Data</th>
+                    <th>Compliance</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsMetricTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
     </section>
 
     <section id="configPage" class="page-panel hidden" aria-label="Configuration page">

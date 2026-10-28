@@ -8,6 +8,10 @@ import {
   parseNumericValue,
 } from "/js/domain/report-math.mjs";
 import { fetchWithRetry, runTaskPool } from "/js/api/request-pool.mjs";
+import {
+  buildAnalyticsSummary,
+  getAnalyticsScopeOptions,
+} from "/js/domain/report-analytics.mjs";
 
 import {
   API_CONFIG,
@@ -60,6 +64,7 @@ const state = {
   activeDeviceTab: "",
   latestApiUrls: [],
   activePage: "report",
+  analyticsScopeKey: "all",
   activeConfigModule: "devices",
   configDeviceSearch: "",
   substationDeviceSearch: "",
@@ -102,9 +107,18 @@ const powerQualityReportTableBody = document.querySelector("#powerQualityReportT
 const deviceTabs = document.getElementById("deviceTabs");
 const statusMessage = document.getElementById("statusMessage");
 const showReportPageButton = document.getElementById("showReportPageButton");
+const showAnalyticsPageButton = document.getElementById("showAnalyticsPageButton");
 const showConfigPageButton = document.getElementById("showConfigPageButton");
 const reportPage = document.getElementById("reportPage");
+const analyticsPage = document.getElementById("analyticsPage");
 const configPage = document.getElementById("configPage");
+const analyticsContext = document.getElementById("analyticsContext");
+const analyticsScopeSelect = document.getElementById("analyticsScopeSelect");
+const analyticsEmptyState = document.getElementById("analyticsEmptyState");
+const analyticsContent = document.getElementById("analyticsContent");
+const analyticsKpis = document.getElementById("analyticsKpis");
+const analyticsGroupTableBody = document.getElementById("analyticsGroupTableBody");
+const analyticsMetricTableBody = document.getElementById("analyticsMetricTableBody");
 const configProjectSummary = document.getElementById("configProjectSummary");
 const configMetricForm = document.getElementById("configMetricForm");
 const configProjectSelect = document.getElementById("configProjectSelect");
@@ -208,9 +222,19 @@ function bindEvents() {
     renderActivePage();
   });
 
+  showAnalyticsPageButton.addEventListener("click", () => {
+    state.activePage = "analytics";
+    renderActivePage();
+  });
+
   showConfigPageButton.addEventListener("click", () => {
     state.activePage = "config";
     renderActivePage();
+  });
+
+  analyticsScopeSelect.addEventListener("change", () => {
+    state.analyticsScopeKey = analyticsScopeSelect.value || "all";
+    renderAnalyticsPage();
   });
 
   deviceManagementTab.addEventListener("click", () => setActiveConfigModule("devices"));
@@ -691,13 +715,236 @@ function formatConfigThresholdRange(tolerance, unit = "") {
 
 function renderActivePage() {
   const showingConfig = state.activePage === "config";
-  reportPage.classList.toggle("hidden", showingConfig);
+  const showingAnalytics = state.activePage === "analytics";
+  reportPage.classList.toggle("hidden", showingConfig || showingAnalytics);
+  analyticsPage.classList.toggle("hidden", !showingAnalytics);
   configPage.classList.toggle("hidden", !showingConfig);
-  showReportPageButton.classList.toggle("active", !showingConfig);
+  showReportPageButton.classList.toggle("active", !showingConfig && !showingAnalytics);
+  showAnalyticsPageButton.classList.toggle("active", showingAnalytics);
   showConfigPageButton.classList.toggle("active", showingConfig);
   if (showingConfig) {
     renderConfigPage();
   }
+  if (showingAnalytics) {
+    renderAnalyticsPage();
+  }
+}
+
+function renderAnalyticsPage() {
+  const records = getLatestAnalyticsRecords();
+  const events = getLatestAnalyticsEvents();
+  renderAnalyticsScopeOptions(records);
+
+  const hasRecords = records.length > 0;
+  analyticsEmptyState.classList.toggle("hidden", hasRecords);
+  analyticsContent.classList.toggle("hidden", !hasRecords);
+  analyticsContext.textContent = hasRecords
+    ? `${getProjectDisplayName(state.projectName)} | ${getSelectedRangeLabel()} | Generated report data`
+    : "Generate a historical values report to calculate analytics.";
+  if (!hasRecords) return;
+
+  const summary = buildAnalyticsSummary(records, events, {
+    scopeKey: state.analyticsScopeKey,
+  });
+  renderAnalyticsKpis(summary);
+  renderAnalyticsGroupTable(summary.groups);
+  renderAnalyticsMetricTable(summary.metrics);
+}
+
+function renderAnalyticsScopeOptions(records) {
+  const options = getAnalyticsScopeOptions(records);
+  const validKeys = new Set(["all", ...options.map((option) => option.key)]);
+  if (!validKeys.has(state.analyticsScopeKey)) state.analyticsScopeKey = "all";
+
+  analyticsScopeSelect.innerHTML = '<option value="all">All report groups</option>';
+  options.forEach((option) => {
+    const element = document.createElement("option");
+    element.value = option.key;
+    element.textContent = option.label;
+    analyticsScopeSelect.appendChild(element);
+  });
+  analyticsScopeSelect.value = state.analyticsScopeKey;
+}
+
+function renderAnalyticsKpis(summary) {
+  const compliantTotal = summary.compliantCount + summary.warningCount;
+  const cards = [
+    {
+      label: "Devices",
+      value: summary.deviceCount,
+      note: `${summary.recordCount} reading row(s)`,
+    },
+    {
+      label: "Compliance",
+      value: formatAnalyticsRate(summary.complianceRate),
+      note: `${compliantTotal} compliant row(s)`,
+      className: "accent",
+    },
+    {
+      label: "Warnings",
+      value: summary.warningCount,
+      note: "Within limits, near threshold",
+    },
+    {
+      label: "Failed",
+      value: summary.failedCount,
+      note: `${summary.unavailableCount} row(s) without evaluable data`,
+      className: summary.failedCount ? "alert" : "",
+    },
+    {
+      label: "PQ Events",
+      value: summary.eventCount,
+      note: "Events in the generated range",
+    },
+  ];
+
+  analyticsKpis.innerHTML = "";
+  cards.forEach((card) => {
+    const element = document.createElement("article");
+    element.className = `analytics-kpi ${card.className || ""}`.trim();
+    element.innerHTML = `
+      <span class="analytics-kpi-label">${escapeHtml(card.label)}</span>
+      <strong class="analytics-kpi-value">${escapeHtml(String(card.value))}</strong>
+      <span class="analytics-kpi-note">${escapeHtml(card.note)}</span>
+    `;
+    analyticsKpis.appendChild(element);
+  });
+}
+
+function renderAnalyticsGroupTable(groups) {
+  analyticsGroupTableBody.innerHTML = "";
+  if (!groups.length) {
+    analyticsGroupTableBody.innerHTML = '<tr class="empty-row"><td colspan="9">No group data in this scope.</td></tr>';
+    return;
+  }
+  groups.forEach((group) => {
+    const row = document.createElement("tr");
+    appendAnalyticsCell(row, formatAnalyticsGroupType(group.groupType));
+    appendAnalyticsCell(row, group.groupName);
+    appendAnalyticsCell(row, group.deviceCount);
+    appendAnalyticsCell(row, group.recordCount);
+    appendAnalyticsCell(row, group.compliantCount, "analytics-count-pass");
+    appendAnalyticsCell(row, group.warningCount, "analytics-count-warning");
+    appendAnalyticsCell(row, group.failedCount, "analytics-count-fail");
+    appendAnalyticsRateCell(row, group.complianceRate);
+    appendAnalyticsCell(row, group.eventCount);
+    analyticsGroupTableBody.appendChild(row);
+  });
+}
+
+function renderAnalyticsMetricTable(metrics) {
+  analyticsMetricTableBody.innerHTML = "";
+  if (!metrics.length) {
+    analyticsMetricTableBody.innerHTML = '<tr class="empty-row"><td colspan="6">No metric data in this scope.</td></tr>';
+    return;
+  }
+  metrics.forEach((metric) => {
+    const row = document.createElement("tr");
+    appendAnalyticsCell(row, metric.metric);
+    appendAnalyticsCell(row, metric.pass, "analytics-count-pass");
+    appendAnalyticsCell(row, metric.warning, "analytics-count-warning");
+    appendAnalyticsCell(row, metric.fail, "analytics-count-fail");
+    appendAnalyticsCell(row, metric.unavailable);
+    appendAnalyticsRateCell(row, metric.complianceRate);
+    analyticsMetricTableBody.appendChild(row);
+  });
+}
+
+function appendAnalyticsCell(row, value, className = "") {
+  const cell = document.createElement("td");
+  cell.textContent = value ?? "";
+  if (className) cell.className = className;
+  row.appendChild(cell);
+}
+
+function appendAnalyticsRateCell(row, rate) {
+  const cell = document.createElement("td");
+  const safeRate = Number.isFinite(rate) ? Math.min(100, Math.max(0, rate)) : 0;
+  cell.innerHTML = `
+    <div class="analytics-rate">
+      <span class="analytics-rate-track"><span class="analytics-rate-fill" style="width: ${safeRate}%"></span></span>
+      <strong>${formatAnalyticsRate(rate)}</strong>
+    </div>
+  `;
+  row.appendChild(cell);
+}
+
+function getLatestAnalyticsRecords() {
+  return [...state.latestReportRows, ...state.latestMainIntakeRows]
+    .map((row) => row?._analytics || null)
+    .filter(Boolean);
+}
+
+function getLatestAnalyticsEvents() {
+  return state.latestPowerQualityRows.map((row) => {
+    const deviceId = String(row?._deviceId || "").trim();
+    const isMainIntake = isDeviceAssignedToMainIntake(deviceId);
+    return {
+      deviceId,
+      groupType: isMainIntake ? "main-intake" : "substation",
+      groupName: String(row?.Category || "Unassigned"),
+    };
+  });
+}
+
+function buildAnalyticsRecordMetadataFromCellClasses(
+  deviceId,
+  deviceName,
+  groupType,
+  groupName,
+  cellClasses
+) {
+  const metricStatuses = {};
+  REPORT_METRIC_COLUMNS.forEach((metric) => {
+    metricStatuses[metric] = getAnalyticsStatusFromCellClass(cellClasses?.[metric]);
+  });
+  return { deviceId, deviceName, groupType, groupName, metricStatuses };
+}
+
+function buildAnalyticsRecordMetadata(deviceId, deviceName, groupType, groupName, complianceByMetric) {
+  const metricStatuses = Object.fromEntries(
+    REPORT_METRIC_COLUMNS.map((metric) => [metric, "unavailable"])
+  );
+  Object.entries(complianceByMetric || {}).forEach(([metric, compliance]) => {
+    metricStatuses[metric] = getAnalyticsStatusFromCompliance(compliance);
+  });
+  return {
+    deviceId: String(deviceId || ""),
+    deviceName: String(deviceName || ""),
+    groupType: String(groupType || ""),
+    groupName: String(groupName || "Unassigned"),
+    metricStatuses,
+  };
+}
+
+function getAnalyticsStatusFromCompliance(compliance) {
+  if (!compliance?.available) return "unavailable";
+  if (!compliance.pass) return "fail";
+  return compliance.warning ? "warning" : "pass";
+}
+
+function getAnalyticsStatusFromCellClass(className) {
+  const classes = String(className || "").split(/\s+/);
+  if (classes.includes("value-fail")) return "fail";
+  if (classes.includes("value-warn")) return "warning";
+  if (classes.includes("value-pass")) return "pass";
+  return "unavailable";
+}
+
+function formatAnalyticsRate(rate) {
+  return Number.isFinite(rate) ? `${rate.toFixed(1)}%` : "N/A";
+}
+
+function formatAnalyticsGroupType(groupType) {
+  return groupType === "main-intake" ? "Main Intake" : groupType === "substation" ? "Substation" : "Group";
+}
+
+function getSelectedRangeLabel() {
+  const selectedOption = timeRangeSelect.options[timeRangeSelect.selectedIndex];
+  if (state.selectedTimeRange === "custom" && customStartDate.value && customEndDate.value) {
+    return `${customStartDate.value} to ${customEndDate.value}`;
+  }
+  return selectedOption?.textContent || state.selectedTimeRange;
 }
 
 function getConfigModuleEntries() {
@@ -1137,7 +1384,44 @@ function buildMainIntakeReportRows(projectName) {
       }
     );
 
+    const mainIntakeCompliance = {
+      "LV Voltage": evaluateVoltageContextCompliance(voltageContext.lv, "LV Voltage"),
+      "HV Voltage": evaluateVoltageContextCompliance(voltageContext.hv, "HV Voltage"),
+      Load: evaluateSingleMetricCompliance(latestMetrics, "LOAD_PERCENT", "Load", { deviceId }),
+      "LV Power Factor": evaluateSingleMetricCompliance(
+        latestMetrics,
+        "POWER_FACTOR",
+        "LV Power Factor",
+        { deviceId }
+      ),
+      "LV Voltage Unbalance": evaluateSingleMetricCompliance(
+        latestMetrics,
+        "V_UNBALANCE",
+        "LV Voltage Unbalance",
+        { deviceId }
+      ),
+      "LV Current Unbalance": evaluateSingleMetricCompliance(
+        latestMetrics,
+        "A_UNBALANCE",
+        "LV Current Unbalance",
+        { deviceId }
+      ),
+      "TX Voltage Ratio": evaluateSingleMetricCompliance(
+        latestMetrics,
+        "TRANSFORMATION_RATIO",
+        "TX Voltage Ratio",
+        { deviceId }
+      ),
+    };
+
     rows.push({
+      _analytics: buildAnalyticsRecordMetadata(
+        deviceId,
+        getDeviceDisplayName(deviceId),
+        "main-intake",
+        mainIntakeName,
+        mainIntakeCompliance
+      ),
       "Main Intake": mainIntakeName,
       Device: getDeviceDisplayName(deviceId),
       "LV Voltage": formatMainIntakeMetricNumber(voltageContext.lv?.value, 2),
@@ -5277,6 +5561,13 @@ function buildNominalRowsTable(deviceTables, metricColumns, includeDate = true) 
       }
       const outputRow = {
         ...complianceRow.row,
+        _analytics: buildAnalyticsRecordMetadataFromCellClasses(
+          deviceTable.deviceId,
+          deviceTable.label || deviceTable.deviceId || "",
+          "substation",
+          complianceRow.row?.Substation || deviceTable.substation || "Unassigned",
+          complianceRow.cellClasses || {}
+        ),
       };
       if (includeDate) {
         outputRow.Date = dateKey;

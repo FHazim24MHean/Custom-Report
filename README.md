@@ -10,6 +10,7 @@ The production service always listens on TCP port `8081`.
 - HT/LV device and transformer mappings
 - Per-device compliance thresholds
 - Historical value and power-quality event reports
+- Group-filtered compliance and metric-health analytics
 - Stable `/r/{slug}` dashboard links
 - PDF, Excel, and CSV exports
 - Local PDF and Excel libraries; no browser internet access required
@@ -56,7 +57,7 @@ npm test
 Generate a password hash:
 
 ```powershell
-node .\service\hash-password.js "your-password"
+$env:REPORT_PASSWORD_HASH = "your-password" | node .\service\hash-password.js
 ```
 
 Set the environment and start the service:
@@ -108,6 +109,12 @@ It then requests actual historical aggregates from:
 ```
 
 GridVis requests are concurrency-limited and transient GET failures are retried. Starting a new report cancels the previous in-progress report.
+
+## Analytics
+
+Generate a historical values report, then open **Analytics**. The analytics view uses the current in-memory report and can be filtered to any Substation or Main Intake included in that report. It summarizes device count, compliant and failed reading rows, amber threshold warnings, power-quality events, and per-parameter health.
+
+Analytics does not make additional GridVis requests or persist measurement history in the JSON configuration store.
 
 ## Report Links
 
