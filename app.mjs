@@ -12,6 +12,7 @@ import {
   buildAnalyticsSummary,
   getAnalyticsScopeOptions,
 } from "/js/domain/report-analytics.mjs";
+import { buildBillingAnalytics } from "/js/domain/billing-analytics.mjs";
 
 import {
   API_CONFIG,
@@ -64,7 +65,19 @@ const state = {
   activeDeviceTab: "",
   latestApiUrls: [],
   activePage: "report",
+  activeResultTab: "data",
+  reportSession: null,
   analyticsScopeKey: "all",
+  billingTariff: {
+    currency: "MYR",
+    energyRate: 0,
+    exportRate: 0,
+    demandRate: 0,
+    fixedCharge: 0,
+    taxPercent: 0,
+  },
+  latestBillingSummary: null,
+  latestBillingRows: [],
   activeConfigModule: "devices",
   configDeviceSearch: "",
   substationDeviceSearch: "",
@@ -107,11 +120,17 @@ const powerQualityReportTableBody = document.querySelector("#powerQualityReportT
 const deviceTabs = document.getElementById("deviceTabs");
 const statusMessage = document.getElementById("statusMessage");
 const showReportPageButton = document.getElementById("showReportPageButton");
-const showAnalyticsPageButton = document.getElementById("showAnalyticsPageButton");
 const showConfigPageButton = document.getElementById("showConfigPageButton");
 const reportPage = document.getElementById("reportPage");
-const analyticsPage = document.getElementById("analyticsPage");
 const configPage = document.getElementById("configPage");
+const reportResultsEmpty = document.getElementById("reportResultsEmpty");
+const reportResultsWorkspace = document.getElementById("reportResultsWorkspace");
+const dataResultTab = document.getElementById("dataResultTab");
+const analyticsResultTab = document.getElementById("analyticsResultTab");
+const billingResultTab = document.getElementById("billingResultTab");
+const dataResultPanel = document.getElementById("dataResultPanel");
+const analyticsResultPanel = document.getElementById("analyticsResultPanel");
+const billingResultPanel = document.getElementById("billingResultPanel");
 const analyticsContext = document.getElementById("analyticsContext");
 const analyticsScopeSelect = document.getElementById("analyticsScopeSelect");
 const analyticsEmptyState = document.getElementById("analyticsEmptyState");
@@ -119,6 +138,17 @@ const analyticsContent = document.getElementById("analyticsContent");
 const analyticsKpis = document.getElementById("analyticsKpis");
 const analyticsGroupTableBody = document.getElementById("analyticsGroupTableBody");
 const analyticsMetricTableBody = document.getElementById("analyticsMetricTableBody");
+const billingContext = document.getElementById("billingContext");
+const billingCurrencySelect = document.getElementById("billingCurrencySelect");
+const billingEnergyRateInput = document.getElementById("billingEnergyRateInput");
+const billingExportRateInput = document.getElementById("billingExportRateInput");
+const billingDemandRateInput = document.getElementById("billingDemandRateInput");
+const billingFixedChargeInput = document.getElementById("billingFixedChargeInput");
+const billingTaxInput = document.getElementById("billingTaxInput");
+const recalculateBillingButton = document.getElementById("recalculateBillingButton");
+const billingKpis = document.getElementById("billingKpis");
+const billingAvailabilityMessage = document.getElementById("billingAvailabilityMessage");
+const billingTableBody = document.getElementById("billingTableBody");
 const configProjectSummary = document.getElementById("configProjectSummary");
 const configMetricForm = document.getElementById("configMetricForm");
 const configProjectSelect = document.getElementById("configProjectSelect");
@@ -222,11 +252,6 @@ function bindEvents() {
     renderActivePage();
   });
 
-  showAnalyticsPageButton.addEventListener("click", () => {
-    state.activePage = "analytics";
-    renderActivePage();
-  });
-
   showConfigPageButton.addEventListener("click", () => {
     state.activePage = "config";
     renderActivePage();
@@ -235,6 +260,14 @@ function bindEvents() {
   analyticsScopeSelect.addEventListener("change", () => {
     state.analyticsScopeKey = analyticsScopeSelect.value || "all";
     renderAnalyticsPage();
+  });
+
+  dataResultTab.addEventListener("click", () => setActiveResultTab("data"));
+  analyticsResultTab.addEventListener("click", () => setActiveResultTab("analytics"));
+  billingResultTab.addEventListener("click", () => setActiveResultTab("billing"));
+  recalculateBillingButton.addEventListener("click", () => {
+    readBillingTariffInputs();
+    renderBillingAnalytics();
   });
 
   deviceManagementTab.addEventListener("click", () => setActiveConfigModule("devices"));
@@ -715,19 +748,50 @@ function formatConfigThresholdRange(tolerance, unit = "") {
 
 function renderActivePage() {
   const showingConfig = state.activePage === "config";
-  const showingAnalytics = state.activePage === "analytics";
-  reportPage.classList.toggle("hidden", showingConfig || showingAnalytics);
-  analyticsPage.classList.toggle("hidden", !showingAnalytics);
+  reportPage.classList.toggle("hidden", showingConfig);
   configPage.classList.toggle("hidden", !showingConfig);
-  showReportPageButton.classList.toggle("active", !showingConfig && !showingAnalytics);
-  showAnalyticsPageButton.classList.toggle("active", showingAnalytics);
+  showReportPageButton.classList.toggle("active", !showingConfig);
   showConfigPageButton.classList.toggle("active", showingConfig);
   if (showingConfig) {
     renderConfigPage();
+  } else {
+    renderResultWorkspace();
   }
-  if (showingAnalytics) {
-    renderAnalyticsPage();
-  }
+}
+
+function setActiveResultTab(tabId) {
+  const safeTabId = ["data", "analytics", "billing"].includes(tabId) ? tabId : "data";
+  if (!state.reportSession) return;
+  if (state.reportSession.reportType === "hist-events" && safeTabId !== "data") return;
+  state.activeResultTab = safeTabId;
+  renderResultWorkspace();
+}
+
+function renderResultWorkspace() {
+  const hasSession = Boolean(state.reportSession);
+  reportResultsEmpty.classList.toggle("hidden", hasSession);
+  reportResultsWorkspace.classList.toggle("hidden", !hasSession);
+  if (!hasSession) return;
+
+  const supportsDerivedViews = state.reportSession.reportType !== "hist-events";
+  analyticsResultTab.disabled = !supportsDerivedViews;
+  billingResultTab.disabled = !supportsDerivedViews;
+  if (!supportsDerivedViews && state.activeResultTab !== "data") state.activeResultTab = "data";
+
+  const entries = [
+    { id: "data", tab: dataResultTab, panel: dataResultPanel },
+    { id: "analytics", tab: analyticsResultTab, panel: analyticsResultPanel },
+    { id: "billing", tab: billingResultTab, panel: billingResultPanel },
+  ];
+  entries.forEach((entry) => {
+    const active = entry.id === state.activeResultTab;
+    entry.tab.classList.toggle("active", active);
+    entry.tab.setAttribute("aria-selected", active ? "true" : "false");
+    entry.panel.classList.toggle("hidden", !active);
+  });
+
+  if (state.activeResultTab === "analytics") renderAnalyticsPage();
+  if (state.activeResultTab === "billing") renderBillingAnalytics();
 }
 
 function renderAnalyticsPage() {
@@ -739,7 +803,7 @@ function renderAnalyticsPage() {
   analyticsEmptyState.classList.toggle("hidden", hasRecords);
   analyticsContent.classList.toggle("hidden", !hasRecords);
   analyticsContext.textContent = hasRecords
-    ? `${getProjectDisplayName(state.projectName)} | ${getSelectedRangeLabel()} | Generated report data`
+    ? `${state.reportSession?.projectLabel || getProjectDisplayName(state.projectName)} | ${state.reportSession?.rangeLabel || getSelectedRangeLabel()} | Generated report data`
     : "Generate a historical values report to calculate analytics.";
   if (!hasRecords) return;
 
@@ -945,6 +1009,168 @@ function getSelectedRangeLabel() {
     return `${customStartDate.value} to ${customEndDate.value}`;
   }
   return selectedOption?.textContent || state.selectedTimeRange;
+}
+
+function readBillingTariffInputs() {
+  state.billingTariff = {
+    currency: billingCurrencySelect.value || "MYR",
+    energyRate: billingEnergyRateInput.value,
+    exportRate: billingExportRateInput.value,
+    demandRate: billingDemandRateInput.value,
+    fixedCharge: billingFixedChargeInput.value,
+    taxPercent: billingTaxInput.value,
+  };
+}
+
+function buildBillingMeterSeries() {
+  return (Array.isArray(state.latestDeviceTables) ? state.latestDeviceTables : []).map((deviceTable) => {
+    const deviceId = String(deviceTable?.deviceId || "");
+    const mainIntake = isDeviceAssignedToMainIntake(deviceId);
+    const groupType = mainIntake ? "main-intake" : "substation";
+    const groupName = mainIntake
+      ? getProjectAssignedMainIntake(state.projectName, deviceId)
+      : getProjectAssignedSubstation(state.projectName, deviceId);
+    return {
+      deviceId,
+      deviceName: String(deviceTable?.label || getDeviceDisplayName(deviceId)),
+      groupType,
+      groupName: groupName || "Unassigned",
+      readings: (Array.isArray(deviceTable?.rows) ? deviceTable.rows : []).map((row) => ({
+        capturedAt: row?._capturedAt,
+        importMinWh: parseNumericValue(row?.ACTIVE_ENERGY_CONSUMED_Min),
+        importMaxWh: parseNumericValue(row?.ACTIVE_ENERGY_CONSUMED_Max),
+        exportMinWh: parseNumericValue(row?.ACTIVE_ENERGY_SUPPLIED_Min),
+        exportMaxWh: parseNumericValue(row?.ACTIVE_ENERGY_SUPPLIED_Max),
+        activePowerMaxW: parseNumericValue(row?.POWER_ACTIVE_SUM_Max),
+        powerFactor: parseNumericValue(row?.POWER_FACTOR),
+      })),
+    };
+  });
+}
+
+function renderBillingAnalytics() {
+  readBillingTariffInputs();
+  const summary = buildBillingAnalytics(buildBillingMeterSeries(), state.billingTariff);
+  state.latestBillingSummary = summary;
+  state.latestBillingRows = summary.rows;
+  billingContext.textContent = `${state.reportSession?.projectLabel || getProjectDisplayName(state.projectName)} | ${state.reportSession?.rangeLabel || getSelectedRangeLabel()} | Estimated values are not stored`;
+  renderBillingKpis(summary);
+  renderBillingTable(summary);
+
+  const unavailableText = summary.unavailableMeterCount
+    ? `${summary.unavailableMeterCount} meter(s) do not expose imported active-energy data for this report.`
+    : "All selected meters expose imported active-energy data.";
+  const zeroTariff =
+    summary.tariff.energyRate === 0 &&
+    summary.tariff.demandRate === 0 &&
+    summary.tariff.fixedCharge === 0;
+  billingAvailabilityMessage.textContent = zeroTariff
+    ? `${unavailableText} Enter tariff rates and recalculate to estimate charges.`
+    : unavailableText;
+  billingAvailabilityMessage.classList.toggle("warning", summary.unavailableMeterCount > 0);
+}
+
+function renderBillingKpis(summary) {
+  const currency = summary?.tariff?.currency || "MYR";
+  const cards = [
+    {
+      label: "Meters with data",
+      value: summary.availableMeterCount,
+      note: `${summary.unavailableMeterCount} unavailable`,
+    },
+    {
+      label: "Imported energy",
+      value: `${formatBillingNumber(summary.totalImportedKwh, 2)} kWh`,
+      note: `${formatBillingNumber(summary.totalExportedKwh, 2)} kWh exported`,
+      className: "accent",
+    },
+    {
+      label: "Peak demand",
+      value: `${formatBillingNumber(summary.peakDemandKw, 2)} kW`,
+      note: "Highest selected-meter demand",
+    },
+    {
+      label: "Data coverage",
+      value: `${formatBillingNumber(summary.averageCoveragePercent, 1)}%`,
+      note: "Average imported-energy coverage",
+    },
+    {
+      label: "Estimated total",
+      value: formatBillingCurrency(summary.totalCharge, currency),
+      note: "Based on temporary tariff",
+      className: "accent",
+    },
+  ];
+
+  billingKpis.innerHTML = "";
+  cards.forEach((card) => {
+    const element = document.createElement("article");
+    element.className = `analytics-kpi ${card.className || ""}`.trim();
+    element.innerHTML = `
+      <span class="analytics-kpi-label">${escapeHtml(card.label)}</span>
+      <strong class="analytics-kpi-value billing-kpi-value">${escapeHtml(String(card.value))}</strong>
+      <span class="analytics-kpi-note">${escapeHtml(card.note)}</span>
+    `;
+    billingKpis.appendChild(element);
+  });
+}
+
+function renderBillingTable(summary) {
+  billingTableBody.innerHTML = "";
+  const rows = Array.isArray(summary?.rows) ? summary.rows : [];
+  if (!rows.length) {
+    billingTableBody.innerHTML = '<tr class="empty-row"><td colspan="13">No selected meters are available.</td></tr>';
+    return;
+  }
+
+  rows.forEach((billingRow) => {
+    const row = document.createElement("tr");
+    if (!billingRow.available) row.classList.add("billing-row-unavailable");
+    appendAnalyticsCell(
+      row,
+      `${formatAnalyticsGroupType(billingRow.groupType)}: ${billingRow.groupName}`
+    );
+    appendAnalyticsCell(row, billingRow.deviceName);
+    appendAnalyticsCell(row, formatBillingOptionalNumber(billingRow.openingKwh, 3));
+    appendAnalyticsCell(row, formatBillingOptionalNumber(billingRow.closingKwh, 3));
+    appendAnalyticsCell(row, billingRow.available ? formatBillingNumber(billingRow.importedKwh, 3) : "N/A");
+    appendAnalyticsCell(row, billingRow.available ? formatBillingNumber(billingRow.exportedKwh, 3) : "N/A");
+    appendAnalyticsCell(row, billingRow.available ? formatBillingNumber(billingRow.maxDemandKw, 3) : "N/A");
+    appendAnalyticsCell(row, formatBillingOptionalNumber(billingRow.averagePowerFactor, 3));
+    appendAnalyticsCell(row, billingRow.available ? `${formatBillingNumber(billingRow.coveragePercent, 1)}%` : "N/A");
+    appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.energyCharge - billingRow.exportCredit, summary.tariff.currency) : "N/A");
+    appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.demandCharge, summary.tariff.currency) : "N/A");
+    appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.taxAmount, summary.tariff.currency) : "N/A");
+    appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.totalCharge, summary.tariff.currency) : "N/A", billingRow.available ? "billing-total-cell" : "");
+    billingTableBody.appendChild(row);
+  });
+}
+
+function formatBillingNumber(value, decimals = 2) {
+  return Number.isFinite(value)
+    ? new Intl.NumberFormat("en-MY", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      }).format(value)
+    : "N/A";
+}
+
+function formatBillingOptionalNumber(value, decimals = 2) {
+  return Number.isFinite(value) ? formatBillingNumber(value, decimals) : "N/A";
+}
+
+function formatBillingCurrency(value, currency = "MYR") {
+  if (!Number.isFinite(value)) return "N/A";
+  try {
+    return new Intl.NumberFormat("en-MY", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch (_error) {
+    return `${currency} ${formatBillingNumber(value, 2)}`;
+  }
 }
 
 function getConfigModuleEntries() {
@@ -3897,6 +4123,10 @@ async function onGenerateReport() {
   state.reportAbortController?.abort();
   const reportAbortController = new AbortController();
   state.reportAbortController = reportAbortController;
+  state.reportSession = null;
+  state.latestBillingSummary = null;
+  state.latestBillingRows = [];
+  renderResultWorkspace();
   setStatus("Generating report...");
   try {
     const filters = {
@@ -3940,6 +4170,20 @@ async function onGenerateReport() {
     renderDeviceTables(table.deviceTables, table.columns, table.columnGroups);
     renderMainIntakeReportTable(filters.type === "hist-events" ? [] : null);
     renderPowerQualityReportTable(filters.type === "hist-events" ? [] : powerQualityRows);
+    state.reportSession = {
+      projectName: state.projectName,
+      projectLabel: getProjectDisplayName(state.projectName),
+      reportType: filters.type,
+      range: filters.range,
+      rangeLabel: getSelectedRangeLabel(),
+      startDate: filters.startDate || "",
+      endDate: filters.endDate || "",
+      deviceIds: [...state.selectedDeviceIds],
+      generatedAt: new Date().toISOString(),
+    };
+    state.activeResultTab = "data";
+    if (filters.type !== "hist-events") renderBillingAnalytics();
+    renderResultWorkspace();
 
     const urlHint = state.latestApiUrls[0] ? ` | URL: ${state.latestApiUrls[0]}` : "";
     const powerQualityHint =
@@ -3961,6 +4205,10 @@ async function onGenerateReport() {
     renderDeviceTables([]);
     renderMainIntakeReportTable([]);
     renderPowerQualityReportTable([]);
+    state.reportSession = null;
+    state.latestBillingSummary = null;
+    state.latestBillingRows = [];
+    renderResultWorkspace();
     const urlHint = state.latestApiUrls[0] ? ` | URL: ${state.latestApiUrls[0]}` : "";
     setStatus(`Report request failed. ${error.message}${urlHint}`, true);
   } finally {
@@ -4225,6 +4473,15 @@ function buildDemoExtraNominalMetrics(
   const vUnbalanceBand = failedMetrics.has("V_UNBALANCE") ? 0.4 : warningBiasedDevice ? 0.06 : 0.15;
   const aUnbalanceBand = failedMetrics.has("A_UNBALANCE") ? 0.75 : warningBiasedDevice ? 0.12 : 0.35;
   const powerFactorBand = failedMetrics.has("POWER_FACTOR") ? 0.03 : warningBiasedDevice ? 0.004 : 0.01;
+  const dailyImportedWh = 180000 + (deviceSeed % 650) * 600;
+  const importedOpeningWh = 5000000 + (deviceSeed % 900) * 10000 + timeIndex * dailyImportedWh;
+  const importedClosingWh = importedOpeningWh + dailyImportedWh;
+  const hasExportedEnergy = deviceSeed % 4 === 0;
+  const dailyExportedWh = hasExportedEnergy ? 12000 + (deviceSeed % 80) * 250 : 0;
+  const exportedOpeningWh = 250000 + (deviceSeed % 120) * 1000 + timeIndex * dailyExportedWh;
+  const exportedClosingWh = exportedOpeningWh + dailyExportedWh;
+  const activePowerW = 18000 + (deviceSeed % 700) * 90 + timeIndex * 350;
+  const activePowerBandW = 4000 + (deviceSeed % 90) * 40;
 
   return {
     TOP_OIL_TEMPERATURE: topOilRaw.toFixed(2),
@@ -4245,12 +4502,24 @@ function buildDemoExtraNominalMetrics(
     POWER_FACTOR: powerFactorRaw.toFixed(2),
     POWER_FACTOR_Min: Math.max(0, powerFactorRaw - powerFactorBand).toFixed(2),
     POWER_FACTOR_Max: Math.min(1.2, powerFactorRaw + powerFactorBand).toFixed(2),
+    POWER_ACTIVE_SUM: activePowerW.toFixed(2),
+    POWER_ACTIVE_SUM_Min: Math.max(0, activePowerW - activePowerBandW).toFixed(2),
+    POWER_ACTIVE_SUM_Max: (activePowerW + activePowerBandW).toFixed(2),
+    ACTIVE_ENERGY_CONSUMED: ((importedOpeningWh + importedClosingWh) / 2).toFixed(2),
+    ACTIVE_ENERGY_CONSUMED_Min: importedOpeningWh.toFixed(2),
+    ACTIVE_ENERGY_CONSUMED_Max: importedClosingWh.toFixed(2),
+    ACTIVE_ENERGY_SUPPLIED: ((exportedOpeningWh + exportedClosingWh) / 2).toFixed(2),
+    ACTIVE_ENERGY_SUPPLIED_Min: exportedOpeningWh.toFixed(2),
+    ACTIVE_ENERGY_SUPPLIED_Max: exportedClosingWh.toFixed(2),
     TopOilTemperatureUnit: "degC",
     WindingTemperatureUnit: "degC",
     LoadPercentUnit: "%",
     VUnbalanceUnit: "%",
     AUnbalanceUnit: "%",
     PowerFactorUnit: "",
+    PowerActiveSumUnit: "W",
+    ActiveEnergyConsumedUnit: "Wh",
+    ActiveEnergySuppliedUnit: "Wh",
   };
 }
 
@@ -4507,12 +4776,22 @@ function buildNominalRequestSpecsForDevice(valueDescriptions, options = {}) {
       queryValue: powerFactorSource.value,
       phase: powerFactorSource.type || null,
     });
-  } else {
-    const activePowerSource = resolveValueTypeCandidate(
-      safeDescriptions,
-      "PowerActive",
-      CAPABILITY_TYPE_PREFERENCES.POWER_ACTIVE_SUM
-    );
+  }
+
+  const activePowerSource = resolveValueTypeCandidate(
+    safeDescriptions,
+    "PowerActive",
+    CAPABILITY_TYPE_PREFERENCES.POWER_ACTIVE_SUM
+  );
+  if (activePowerSource) {
+    requestSpecs.push({
+      metricName: "POWER_ACTIVE_SUM",
+      queryValue: activePowerSource.value,
+      phase: activePowerSource.type || null,
+    });
+  }
+
+  if (!powerFactorSource) {
     const apparentPowerSource = resolveValueTypeCandidate(
       safeDescriptions,
       "PowerApparent",
@@ -4520,16 +4799,37 @@ function buildNominalRequestSpecsForDevice(valueDescriptions, options = {}) {
     );
     if (activePowerSource && apparentPowerSource) {
       requestSpecs.push({
-        metricName: "POWER_ACTIVE_SUM",
-        queryValue: activePowerSource.value,
-        phase: activePowerSource.type || null,
-      });
-      requestSpecs.push({
         metricName: "POWER_APPARENT_SUM",
         queryValue: apparentPowerSource.value,
         phase: apparentPowerSource.type || null,
       });
     }
+  }
+
+  const consumedEnergySource = resolveValueTypeCandidate(
+    safeDescriptions,
+    "ActiveEnergyConsumed",
+    CAPABILITY_TYPE_PREFERENCES.ACTIVE_ENERGY
+  );
+  if (consumedEnergySource) {
+    requestSpecs.push({
+      metricName: "ACTIVE_ENERGY_CONSUMED",
+      queryValue: consumedEnergySource.value,
+      phase: consumedEnergySource.type || null,
+    });
+  }
+
+  const suppliedEnergySource = resolveValueTypeCandidate(
+    safeDescriptions,
+    "ActiveEnergySupplied",
+    CAPABILITY_TYPE_PREFERENCES.ACTIVE_ENERGY
+  );
+  if (suppliedEnergySource) {
+    requestSpecs.push({
+      metricName: "ACTIVE_ENERGY_SUPPLIED",
+      queryValue: suppliedEnergySource.value,
+      phase: suppliedEnergySource.type || null,
+    });
   }
 
   ["TOP_OIL_TEMPERATURE", "WINDING_TEMPERATURE", "LOAD_PERCENT"].forEach((metricKey) => {
@@ -7023,7 +7323,147 @@ function buildSupplementalExportDatasets() {
     });
   }
 
+  datasets.push(...buildAnalyticsExportDatasets());
+  datasets.push(...buildBillingExportDatasets());
+
   return datasets;
+}
+
+function buildAnalyticsExportDatasets() {
+  const records = getLatestAnalyticsRecords();
+  if (!records.length) return [];
+  const summary = buildAnalyticsSummary(records, getLatestAnalyticsEvents(), { scopeKey: "all" });
+  const groupColumns = [
+    "Type",
+    "Group",
+    "Devices",
+    "Readings",
+    "Pass",
+    "Warning",
+    "Failed",
+    "Compliance (%)",
+    "PQ Events",
+  ];
+  const metricColumns = ["Parameter", "Pass", "Warning", "Failed", "No Data", "Compliance (%)"];
+
+  return [
+    {
+      deviceId: "analytics-groups",
+      label: `${state.projectName || "Report"} - Analytics Groups`,
+      sectionTitle: "Analytics - Compliance by Electrical Group",
+      exportRole: "analytics",
+      columns: groupColumns,
+      rows: summary.groups.map((group) => ({
+        Type: formatAnalyticsGroupType(group.groupType),
+        Group: group.groupName,
+        Devices: group.deviceCount,
+        Readings: group.recordCount,
+        Pass: group.compliantCount,
+        Warning: group.warningCount,
+        Failed: group.failedCount,
+        "Compliance (%)": group.complianceRate ?? "N/A",
+        "PQ Events": group.eventCount,
+      })),
+    },
+    {
+      deviceId: "analytics-metrics",
+      label: `${state.projectName || "Report"} - Metric Health`,
+      sectionTitle: "Analytics - Metric Health",
+      exportRole: "analytics",
+      columns: metricColumns,
+      rows: summary.metrics.map((metric) => ({
+        Parameter: metric.metric,
+        Pass: metric.pass,
+        Warning: metric.warning,
+        Failed: metric.fail,
+        "No Data": metric.unavailable,
+        "Compliance (%)": metric.complianceRate ?? "N/A",
+      })),
+    },
+  ];
+}
+
+function buildBillingExportDatasets() {
+  const summary = state.latestBillingSummary;
+  if (!summary || !Array.isArray(summary.rows) || !summary.rows.length) return [];
+  const currency = summary.tariff?.currency || "MYR";
+  const columns = [
+    "Group",
+    "Meter",
+    "Opening kWh",
+    "Closing kWh",
+    "Import kWh",
+    "Export kWh",
+    "Max Demand kW",
+    "Average PF",
+    "Coverage (%)",
+    `Energy Charge (${currency})`,
+    `Demand Charge (${currency})`,
+    `Fixed Charge (${currency})`,
+    `Tax (${currency})`,
+    `Total (${currency})`,
+  ];
+  return [
+    {
+      deviceId: "billing-summary",
+      label: `${state.projectName || "Report"} - Billing Summary`,
+      sectionTitle: "Estimated Billing Summary and Tariff",
+      exportRole: "billing",
+      columns: [
+        "Currency",
+        "Import Rate / kWh",
+        "Export Credit / kWh",
+        "Demand Rate / kW",
+        "Fixed Charge / Meter",
+        "Tax (%)",
+        "Meters with Data",
+        "Imported kWh",
+        "Exported kWh",
+        "Peak Demand kW",
+        "Coverage (%)",
+        "Estimated Total",
+      ],
+      rows: [
+        {
+          Currency: currency,
+          "Import Rate / kWh": summary.tariff.energyRate,
+          "Export Credit / kWh": summary.tariff.exportRate,
+          "Demand Rate / kW": summary.tariff.demandRate,
+          "Fixed Charge / Meter": summary.tariff.fixedCharge,
+          "Tax (%)": summary.tariff.taxPercent,
+          "Meters with Data": summary.availableMeterCount,
+          "Imported kWh": summary.totalImportedKwh,
+          "Exported kWh": summary.totalExportedKwh,
+          "Peak Demand kW": summary.peakDemandKw,
+          "Coverage (%)": summary.averageCoveragePercent,
+          "Estimated Total": summary.totalCharge,
+        },
+      ],
+    },
+    {
+      deviceId: "billing-analytics",
+      label: `${state.projectName || "Report"} - Billing Analytics`,
+      sectionTitle: "Estimated Billing Analytics",
+      exportRole: "billing",
+      columns,
+      rows: summary.rows.map((row) => ({
+        Group: `${formatAnalyticsGroupType(row.groupType)}: ${row.groupName}`,
+        Meter: row.deviceName,
+        "Opening kWh": row.openingKwh ?? "N/A",
+        "Closing kWh": row.closingKwh ?? "N/A",
+        "Import kWh": row.available ? row.importedKwh : "N/A",
+        "Export kWh": row.available ? row.exportedKwh : "N/A",
+        "Max Demand kW": row.available ? row.maxDemandKw : "N/A",
+        "Average PF": row.averagePowerFactor ?? "N/A",
+        "Coverage (%)": row.available ? row.coveragePercent : "N/A",
+        [`Energy Charge (${currency})`]: row.available ? row.energyCharge - row.exportCredit : "N/A",
+        [`Demand Charge (${currency})`]: row.available ? row.demandCharge : "N/A",
+        [`Fixed Charge (${currency})`]: row.available ? row.fixedCharge : "N/A",
+        [`Tax (${currency})`]: row.available ? row.taxAmount : "N/A",
+        [`Total (${currency})`]: row.available ? row.totalCharge : "N/A",
+      })),
+    },
+  ];
 }
 
 function buildDatasetsWithNonCompliantAppendix(primaryDataset) {

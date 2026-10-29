@@ -29,6 +29,7 @@ test("serves health, browser modules, and project configuration", async (t) => {
   assert.equal(moduleResponse.status, 200);
   assert.match(moduleResponse.headers.get("content-type"), /javascript/);
   assert.equal((await fetch(`${origin}/js/domain/report-analytics.mjs`)).status, 200);
+  assert.equal((await fetch(`${origin}/js/domain/billing-analytics.mjs`)).status, 200);
 
   assert.equal((await fetch(`${origin}/app.mjs`)).status, 200);
   assert.equal((await fetch(`${origin}/vendor/exceljs.min.js`)).status, 200);

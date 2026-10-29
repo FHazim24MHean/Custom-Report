@@ -271,6 +271,75 @@ h1 {
   margin-top: 16px;
 }
 
+.report-results-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 16px;
+  padding: 28px;
+  border: 1px dashed #9aa7ba;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  text-align: center;
+}
+
+.report-results-empty.hidden {
+  display: none;
+}
+
+.report-results-empty strong {
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.report-results-workspace {
+  margin-top: 16px;
+}
+
+.result-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  overflow-x: auto;
+}
+
+.result-tab {
+  min-width: 150px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 11px 18px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.result-tab:hover:not(:disabled) {
+  border-color: #b9d8d3;
+  background: #eef8f6;
+  color: var(--accent-2);
+}
+
+.result-tab.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 5px 12px rgba(15, 118, 110, 0.2);
+}
+
+.result-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.result-panel {
+  margin-top: 14px;
+}
+
 .analytics-shell {
   display: flex;
   flex-direction: column;
@@ -448,6 +517,104 @@ h1 {
 .analytics-table td,
 .analytics-table th {
   white-space: nowrap;
+}
+
+.billing-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.billing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 22px;
+  border: 1px solid #d8c7a6;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 90% 15%, rgba(180, 121, 37, 0.14), transparent 34%),
+    linear-gradient(135deg, #ffffff 0%, #fbf6ea 100%);
+}
+
+.billing-header h2,
+.billing-tariff-panel h3 {
+  margin: 0;
+}
+
+.billing-data-badge {
+  flex: 0 0 auto;
+  border: 1px solid #dfc78e;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #fff9e8;
+  color: #7a4d0b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.billing-tariff-panel {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.billing-tariff-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.billing-tariff-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.billing-kpi-grid {
+  margin-bottom: 0;
+}
+
+.billing-kpi-value {
+  font-size: clamp(20px, 2vw, 28px);
+}
+
+.billing-availability-message {
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid #b9d8d3;
+  border-radius: 8px;
+  background: #f0faf8;
+  color: #115e59;
+  font-size: 13px;
+}
+
+.billing-availability-message.warning {
+  border-color: #f2cf91;
+  background: #fff8e8;
+  color: #8a5300;
+}
+
+.billing-detail-panel {
+  margin-top: 0;
+}
+
+.billing-table {
+  min-width: 1650px;
+}
+
+.billing-row-unavailable td {
+  color: var(--muted);
+  background: #f8fafc;
+}
+
+.billing-total-cell {
+  color: #115e59;
+  font-weight: 800;
 }
 
 .config-shell {
@@ -1073,7 +1240,9 @@ h1 {
   }
 
   .analytics-header,
-  .analytics-panel-heading {
+  .analytics-panel-heading,
+  .billing-header,
+  .billing-tariff-heading {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1084,6 +1253,14 @@ h1 {
 
   .analytics-kpi-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .billing-tariff-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .result-tab {
+    min-width: max-content;
   }
 
   .config-grid,

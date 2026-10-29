@@ -12,7 +12,6 @@
 
     <div class="page-switcher" aria-label="Page navigation">
       <button id="showReportPageButton" class="page-switch-button active" type="button">Report</button>
-      <button id="showAnalyticsPageButton" class="page-switch-button" type="button">Analytics</button>
       <button id="showConfigPageButton" class="page-switch-button" type="button">Configuration</button>
     </div>
     <button id="logoutButton" class="secondary-button logout-button" type="button">Sign out</button>
@@ -106,6 +105,20 @@
       <p id="statusMessage" class="status-message"></p>
     </section>
 
+    <section id="reportResultsEmpty" class="report-results-empty">
+      <strong>No generated report</strong>
+      <span>Select the project, devices, report type and date range, then generate the report.</span>
+    </section>
+
+    <div id="reportResultsWorkspace" class="report-results-workspace hidden">
+      <div class="result-tabs" role="tablist" aria-label="Generated report views">
+        <button id="dataResultTab" class="result-tab active" type="button" role="tab" aria-selected="true" aria-controls="dataResultPanel">Data Report</button>
+        <button id="analyticsResultTab" class="result-tab" type="button" role="tab" aria-selected="false" aria-controls="analyticsResultPanel">Analytics</button>
+        <button id="billingResultTab" class="result-tab" type="button" role="tab" aria-selected="false" aria-controls="billingResultPanel">Billing Analytics</button>
+      </div>
+
+      <section id="dataResultPanel" class="result-panel" role="tabpanel" aria-labelledby="dataResultTab">
+
     <section class="table-section">
       <div id="deviceTabs" class="device-tabs " aria-label="Device tabs"></div>
       <div class="table-wrap">
@@ -133,9 +146,9 @@
       </section>
     </section>
 
-    </section>
+      </section>
 
-    <section id="analyticsPage" class="page-panel hidden" aria-label="Report analytics page">
+    <section id="analyticsResultPanel" class="result-panel hidden" role="tabpanel" aria-labelledby="analyticsResultTab">
       <div class="analytics-shell">
         <header class="analytics-header">
           <div>
@@ -152,8 +165,8 @@
         </header>
 
         <section id="analyticsEmptyState" class="analytics-empty">
-          <strong>No report data available</strong>
-          <span>Return to Report, select the required devices and date range, then generate the report.</span>
+          <strong>No analytical data available</strong>
+          <span>Analytics require a generated historical-values report.</span>
         </section>
 
         <div id="analyticsContent" class="hidden">
@@ -212,6 +225,95 @@
           </section>
         </div>
       </div>
+    </section>
+
+    <section id="billingResultPanel" class="result-panel hidden" role="tabpanel" aria-labelledby="billingResultTab">
+      <div class="billing-shell">
+        <header class="billing-header">
+          <div>
+            <p class="analytics-eyebrow">Session-only estimate</p>
+            <h2>Billing Analytics</h2>
+            <p id="billingContext" class="config-copy">Billing values are calculated from the generated report and are not stored.</p>
+          </div>
+          <div class="billing-data-badge">GridVis energy data</div>
+        </header>
+
+        <section class="billing-tariff-panel" aria-label="Temporary billing tariff">
+          <div class="billing-tariff-heading">
+            <div>
+              <h3>Temporary Tariff</h3>
+              <p class="config-copy">These rates apply to this browser session only and are never written to configuration.</p>
+            </div>
+            <button id="recalculateBillingButton" class="generate-button" type="button">Recalculate</button>
+          </div>
+          <div class="billing-tariff-grid">
+            <label class="field-group" for="billingCurrencySelect">
+              <span class="field-label">Currency</span>
+              <select id="billingCurrencySelect" class="input-control">
+                <option value="MYR">MYR</option>
+                <option value="USD">USD</option>
+                <option value="SGD">SGD</option>
+              </select>
+            </label>
+            <label class="field-group" for="billingEnergyRateInput">
+              <span class="field-label">Import rate / kWh</span>
+              <input id="billingEnergyRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+            </label>
+            <label class="field-group" for="billingExportRateInput">
+              <span class="field-label">Export credit / kWh</span>
+              <input id="billingExportRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+            </label>
+            <label class="field-group" for="billingDemandRateInput">
+              <span class="field-label">Demand rate / kW</span>
+              <input id="billingDemandRateInput" class="input-control" type="number" min="0" step="0.01" value="0">
+            </label>
+            <label class="field-group" for="billingFixedChargeInput">
+              <span class="field-label">Fixed charge / meter</span>
+              <input id="billingFixedChargeInput" class="input-control" type="number" min="0" step="0.01" value="0">
+            </label>
+            <label class="field-group" for="billingTaxInput">
+              <span class="field-label">Tax (%)</span>
+              <input id="billingTaxInput" class="input-control" type="number" min="0" step="0.01" value="0">
+            </label>
+          </div>
+        </section>
+
+        <section id="billingKpis" class="analytics-kpi-grid billing-kpi-grid" aria-label="Billing summary"></section>
+        <p id="billingAvailabilityMessage" class="billing-availability-message"></p>
+
+        <section class="analytics-panel billing-detail-panel">
+          <div class="analytics-panel-heading">
+            <div>
+              <p class="analytics-eyebrow">Meter detail</p>
+              <h3>Estimated Billing by Meter</h3>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="report-table analytics-table billing-table">
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Meter</th>
+                  <th>Opening kWh</th>
+                  <th>Closing kWh</th>
+                  <th>Import kWh</th>
+                  <th>Export kWh</th>
+                  <th>Max Demand kW</th>
+                  <th>Avg PF</th>
+                  <th>Coverage</th>
+                  <th>Energy Charge</th>
+                  <th>Demand Charge</th>
+                  <th>Tax</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="billingTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+    </div>
     </section>
 
     <section id="configPage" class="page-panel hidden" aria-label="Configuration page">

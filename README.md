@@ -11,6 +11,7 @@ The production service always listens on TCP port `8081`.
 - Per-device compliance thresholds
 - Historical value and power-quality event reports
 - Group-filtered compliance and metric-health analytics
+- In-memory energy and estimated-billing analytics
 - Stable `/r/{slug}` dashboard links
 - PDF, Excel, and CSV exports
 - Local PDF and Excel libraries; no browser internet access required
@@ -25,6 +26,8 @@ Browser -> Custom Report Service :8081 -> GridVis REST API :8080
 ```
 
 Historical measurements remain in GridVis. The JSON store contains configuration only: groups, assignments, labels, transformer mappings, thresholds, and report links.
+
+Generating a historical-values report creates one temporary browser report session with three result tabs: **Data Report**, **Analytics**, and **Billing Analytics**. Closing or reloading the browser discards the generated measurements, analytics, billing calculations, and temporary tariff values.
 
 ## Repository Layout
 
@@ -112,9 +115,17 @@ GridVis requests are concurrency-limited and transient GET failures are retried.
 
 ## Analytics
 
-Generate a historical values report, then open **Analytics**. The analytics view uses the current in-memory report and can be filtered to any Substation or Main Intake included in that report. It summarizes device count, compliant and failed reading rows, amber threshold warnings, power-quality events, and per-parameter health.
+Generate a historical values report, then open the **Analytics** result tab. The analytics view uses the current in-memory report and can be filtered to any Substation or Main Intake included in that report. It summarizes device count, compliant and failed reading rows, amber threshold warnings, power-quality events, and per-parameter health.
 
 Analytics does not make additional GridVis requests or persist measurement history in the JSON configuration store.
+
+## Billing Analytics
+
+The **Billing Analytics** result tab uses GridVis `ActiveEnergyConsumed`, `ActiveEnergySupplied`, and `PowerActive` values when the selected meter exposes them. It calculates imported/exported kWh, maximum demand, average power factor, data coverage, and estimated charges.
+
+Import rate, export credit, demand rate, fixed charge, tax, and currency are temporary browser-session inputs. They are not written to JSON. PDF and Excel exports include the tariff assumptions, billing summary, and meter detail that existed when the export was generated.
+
+Billing output is an estimate and is not an invoice. A meter without consumed active-energy data remains visible as unavailable instead of receiving an inferred charge.
 
 ## Report Links
 

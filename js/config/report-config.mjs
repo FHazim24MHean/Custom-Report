@@ -125,6 +125,22 @@ export const EXTRA_NOMINAL_METRIC_DEFINITIONS = [
     unitValue: "degC",
     unitLabel: "TEMPERATURE_EXTERNAL",
   },
+  {
+    key: "ACTIVE_ENERGY_CONSUMED",
+    queryValue: "ActiveEnergyConsumed",
+    column: "ACTIVE_ENERGY_CONSUMED",
+    unitColumn: "ActiveEnergyConsumedUnit",
+    unitValue: "Wh",
+    unitLabel: "Imported Active Energy",
+  },
+  {
+    key: "ACTIVE_ENERGY_SUPPLIED",
+    queryValue: "ActiveEnergySupplied",
+    column: "ACTIVE_ENERGY_SUPPLIED",
+    unitColumn: "ActiveEnergySuppliedUnit",
+    unitValue: "Wh",
+    unitLabel: "Exported Active Energy",
+  },
 ];
 
 export const HIDDEN_NOMINAL_METRIC_KEYS = [
@@ -137,12 +153,19 @@ export const HIDDEN_NOMINAL_METRIC_KEYS = [
   "TEMPERATURE_EXTERNAL",
   "TEMPERATURE_EXTERNAL_Min",
   "TEMPERATURE_EXTERNAL_Max",
+  "ACTIVE_ENERGY_CONSUMED",
+  "ACTIVE_ENERGY_CONSUMED_Min",
+  "ACTIVE_ENERGY_CONSUMED_Max",
+  "ACTIVE_ENERGY_SUPPLIED",
+  "ACTIVE_ENERGY_SUPPLIED_Min",
+  "ACTIVE_ENERGY_SUPPLIED_Max",
 ];
 
 export const CAPABILITY_TYPE_PREFERENCES = {
   POWER_FACTOR: ["SUM13", "SUM14", "SUM", "TOTAL", "L1", "L2", "L3"],
   POWER_ACTIVE_SUM: ["SUM13", "SUM14", "SUM", "TOTAL"],
   POWER_APPARENT_SUM: ["SUM13", "SUM14", "SUM", "TOTAL"],
+  ACTIVE_ENERGY: ["SUM13", "SUM14", "SUM", "TOTAL"],
 };
 
 export const REPORT_METRIC_COLUMNS = [
