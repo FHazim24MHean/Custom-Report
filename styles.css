@@ -683,6 +683,99 @@ h1 {
   min-width: 0;
 }
 
+.billing-config-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.billing-config-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.billing-source-status {
+  margin: 14px 0;
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ecfdf5;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.billing-source-status.warning {
+  border-left-color: #d97706;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.billing-system-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.billing-system-summary article {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.billing-system-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.billing-system-summary strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.billing-config-table-wrap {
+  max-height: 420px;
+}
+
+.billing-config-table {
+  min-width: 900px;
+}
+
+.billing-active-tariff td {
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 700;
+}
+
+.billing-override-card {
+  position: sticky;
+  top: 14px;
+}
+
+.billing-manual-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.billing-manual-grid.hidden {
+  display: none;
+}
+
 .config-module-filter {
   margin-top: 16px;
 }
@@ -1265,12 +1358,27 @@ h1 {
 
   .config-grid,
   .config-management-grid,
+  .billing-config-grid,
   .config-filter-bar,
   .config-metric-grid,
   .report-link-form,
   .report-link-custom-dates,
   .report-link-row {
     grid-template-columns: 1fr;
+  }
+
+  .billing-config-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .billing-system-summary,
+  .billing-manual-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-override-card {
+    position: static;
   }
 
   .report-link-actions {

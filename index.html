@@ -275,6 +275,10 @@
               <span class="field-label">Tax (%)</span>
               <input id="billingTaxInput" class="input-control" type="number" min="0" step="0.01" value="0">
             </label>
+            <label class="field-group" for="billingAfaRateInput">
+              <span class="field-label">AFA rate (sen/kWh)</span>
+              <input id="billingAfaRateInput" class="input-control" type="number" step="0.0001" value="0">
+            </label>
           </div>
         </section>
 
@@ -302,6 +306,7 @@
                   <th>Avg PF</th>
                   <th>Coverage</th>
                   <th>Energy Charge</th>
+                  <th>AFA Charge</th>
                   <th>Demand Charge</th>
                   <th>Tax</th>
                   <th>Total</th>
@@ -321,7 +326,7 @@
         <div class="config-header-card">
           <div>
             <h2>Configuration</h2>
-            <p class="config-copy">Manage devices, electrical groups, transformer mappings, and report links for the current project.</p>
+            <p class="config-copy">Manage devices, electrical groups, transformer mappings, report links, and billing sources for the current project.</p>
           </div>
           <p id="configProjectSummary" class="config-project-summary">Select a project to configure device mappings.</p>
         </div>
@@ -332,6 +337,7 @@
           <button id="mainIntakeManagementTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="mainIntakeManagementPanel">Main Intake Management</button>
           <button id="transformerMappingTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="transformerMappingPanel">Transformer Mapping</button>
           <button id="reportLinksTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="reportLinksPanel">Report Links</button>
+          <button id="billingConfigurationTab" class="config-module-tab" type="button" role="tab" aria-selected="false" aria-controls="billingConfigurationPanel">Billing Configuration</button>
         </div>
 
         <section id="deviceManagementPanel" class="config-module-panel" role="tabpanel" aria-labelledby="deviceManagementTab">
@@ -587,6 +593,91 @@
 
           <div id="reportLinkList" class="config-device-list report-link-list" aria-label="Configured report links"></div>
         </section>
+        </section>
+
+        <section id="billingConfigurationPanel" class="config-module-panel hidden" role="tabpanel" aria-labelledby="billingConfigurationTab">
+          <div class="billing-config-grid">
+            <section class="config-card billing-system-card">
+              <div class="billing-config-heading">
+                <div>
+                  <h3>Billing System Values</h3>
+                  <p class="config-copy">Live read-only values from the billing application. The billing service is the source of truth.</p>
+                </div>
+                <button id="refreshBillingSystemButton" class="secondary-button" type="button">Refresh</button>
+              </div>
+              <p id="billingSystemStatus" class="billing-source-status">Billing system has not been checked.</p>
+              <div id="billingSystemSummary" class="billing-system-summary"></div>
+              <div class="table-wrap billing-config-table-wrap">
+                <table class="report-table billing-config-table">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Tariff</th>
+                      <th>Peak RM/kWh</th>
+                      <th>Off-peak RM/kWh</th>
+                      <th>Flat RM/kWh</th>
+                      <th>Capacity</th>
+                      <th>Network</th>
+                      <th>Minimum Charge</th>
+                    </tr>
+                  </thead>
+                  <tbody id="billingSystemTariffBody">
+                    <tr class="empty-row"><td colspan="8">Refresh to load tariff rates.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="config-card billing-override-card">
+              <h3>Report Billing Source</h3>
+              <p class="config-copy">Choose live system values or save a manual estimate for the selected Custom Report project.</p>
+              <label class="field-group" for="billingConfigModeSelect">
+                <span class="field-label">Rate source</span>
+                <select id="billingConfigModeSelect" class="input-control">
+                  <option value="system">Billing system</option>
+                  <option value="manual">Manual override</option>
+                </select>
+              </label>
+              <div id="billingManualFields" class="billing-manual-grid hidden">
+                <label class="field-group" for="billingConfigCurrencySelect">
+                  <span class="field-label">Currency</span>
+                  <select id="billingConfigCurrencySelect" class="input-control">
+                    <option value="MYR">MYR</option>
+                    <option value="USD">USD</option>
+                    <option value="SGD">SGD</option>
+                  </select>
+                </label>
+                <label class="field-group" for="billingConfigEnergyRateInput">
+                  <span class="field-label">Import rate / kWh</span>
+                  <input id="billingConfigEnergyRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+                </label>
+                <label class="field-group" for="billingConfigExportRateInput">
+                  <span class="field-label">Export credit / kWh</span>
+                  <input id="billingConfigExportRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+                </label>
+                <label class="field-group" for="billingConfigDemandRateInput">
+                  <span class="field-label">Demand rate / kW</span>
+                  <input id="billingConfigDemandRateInput" class="input-control" type="number" min="0" step="0.01" value="0">
+                </label>
+                <label class="field-group" for="billingConfigFixedChargeInput">
+                  <span class="field-label">Fixed charge / meter</span>
+                  <input id="billingConfigFixedChargeInput" class="input-control" type="number" min="0" step="0.01" value="0">
+                </label>
+                <label class="field-group" for="billingConfigTaxInput">
+                  <span class="field-label">Tax (%)</span>
+                  <input id="billingConfigTaxInput" class="input-control" type="number" min="0" step="0.01" value="0">
+                </label>
+                <label class="field-group" for="billingConfigAfaRateInput">
+                  <span class="field-label">AFA rate (sen/kWh)</span>
+                  <input id="billingConfigAfaRateInput" class="input-control" type="number" step="0.0001" value="0">
+                </label>
+              </div>
+              <p id="billingConfigHint" class="config-copy">Reports will use the active billing-system tariff and current AFA.</p>
+              <div class="config-actions">
+                <button id="saveBillingConfigurationButton" class="generate-button" type="button">Save Billing Configuration</button>
+              </div>
+            </section>
+          </div>
         </section>
       </div>
     </section>

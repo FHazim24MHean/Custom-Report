@@ -6,7 +6,7 @@ const path = require("path");
 
 const { MetadataStore } = require("../lib/metadata-store");
 
-test("persists project groups, thresholds, and transformer mappings", async (t) => {
+test("persists project groups, thresholds, transformer mappings, and billing configuration", async (t) => {
   const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "custom-report-store-"));
   t.after(() => fs.promises.rm(directory, { recursive: true, force: true }));
   const store = new MetadataStore(path.join(directory, "metadata.json"));
@@ -20,11 +20,28 @@ test("persists project groups, thresholds, and transformer mappings", async (t) 
   await store.replaceTransformerMappings("Project A", [
     { htDeviceId: "101", lvDeviceId: "102", label: "TX1" },
   ]);
+  await store.replaceBillingConfiguration("Project A", {
+    mode: "manual",
+    currency: "MYR",
+    energyRate: 0.345,
+    demandRate: 43.6,
+    afaRateSen: -0.47,
+  });
 
   const project = await store.getProject("Project A");
   assert.equal(project.deviceAssignments[0].side, "HT");
   assert.deepEqual(project.thresholdOverridesByDevice[101].POWER_FACTOR, { min: 0.9, max: 1 });
   assert.equal(project.transformerMappings[0].label, "TX1");
+  assert.deepEqual(project.billingConfiguration, {
+    mode: "manual",
+    currency: "MYR",
+    energyRate: 0.345,
+    exportRate: 0,
+    demandRate: 43.6,
+    fixedCharge: 0,
+    taxPercent: 0,
+    afaRateSen: -0.47,
+  });
 });
 
 test("recovers the previous valid metadata file when the primary JSON is corrupt", async (t) => {

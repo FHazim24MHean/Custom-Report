@@ -39,6 +39,7 @@ test("calculates interval consumption, demand, export credit, tax, and totals", 
       demandRate: 10,
       fixedCharge: 20,
       taxPercent: 8,
+      afaRate: -0.0047,
     }
   );
 
@@ -50,9 +51,10 @@ test("calculates interval consumption, demand, export credit, tax, and totals", 
   assert.equal(row.energyCharge, 150);
   assert.equal(row.exportCredit, 3);
   assert.equal(row.demandCharge, 520);
-  assert.equal(row.taxAmount, 54.96);
-  assert.equal(row.totalCharge, 741.96);
-  assert.equal(result.totalCharge, 741.96);
+  assert.equal(row.afaCharge, -1.41);
+  assert.equal(row.taxAmount, 54.85);
+  assert.equal(row.totalCharge, 740.44);
+  assert.equal(result.totalCharge, 740.44);
 });
 
 test("marks meters without imported energy as unavailable", () => {
@@ -77,5 +79,13 @@ test("normalizes invalid tariff inputs to safe non-negative values", () => {
     demandRate: 0,
     fixedCharge: 0,
     taxPercent: 0,
+    afaRate: 0,
+    sourceLabel: "Temporary tariff",
   });
+});
+
+test("accepts a signed AFA rate while keeping other charges non-negative", () => {
+  const tariff = normalizeTariff({ afaRate: "-0.0047", fixedCharge: -20 });
+  assert.equal(tariff.afaRate, -0.0047);
+  assert.equal(tariff.fixedCharge, 0);
 });

@@ -5,6 +5,8 @@ const DEFAULT_TARIFF = Object.freeze({
   demandRate: 0,
   fixedCharge: 0,
   taxPercent: 0,
+  afaRate: 0,
+  sourceLabel: "Temporary tariff",
 });
 
 export function buildBillingAnalytics(meters = [], tariffInput = {}) {
@@ -42,6 +44,8 @@ export function normalizeTariff(input = {}) {
     demandRate: nonNegative(input?.demandRate),
     fixedCharge: nonNegative(input?.fixedCharge),
     taxPercent: nonNegative(input?.taxPercent),
+    afaRate: signedNumber(input?.afaRate),
+    sourceLabel: String(input?.sourceLabel || DEFAULT_TARIFF.sourceLabel).trim() || DEFAULT_TARIFF.sourceLabel,
   };
 }
 
@@ -71,7 +75,8 @@ function summarizeMeter(meter, tariff) {
   const energyCharge = importedKwh * tariff.energyRate;
   const exportCredit = exportedKwh * tariff.exportRate;
   const demandCharge = maxDemandKw * tariff.demandRate;
-  const subtotal = Math.max(0, energyCharge - exportCredit + demandCharge + tariff.fixedCharge);
+  const afaCharge = importedKwh * tariff.afaRate;
+  const subtotal = Math.max(0, energyCharge - exportCredit + afaCharge + demandCharge + tariff.fixedCharge);
   const taxAmount = subtotal * (tariff.taxPercent / 100);
 
   return {
@@ -89,6 +94,7 @@ function summarizeMeter(meter, tariff) {
     coveragePercent: readings.length ? round((importIntervals.length / readings.length) * 100, 1) : 0,
     energyCharge: round(energyCharge, 2),
     exportCredit: round(exportCredit, 2),
+    afaCharge: round(afaCharge, 2),
     demandCharge: round(demandCharge, 2),
     fixedCharge: available ? round(tariff.fixedCharge, 2) : 0,
     taxAmount: round(taxAmount, 2),
@@ -127,6 +133,11 @@ function finiteNumber(value) {
 function nonNegative(value) {
   const numeric = finiteNumber(value);
   return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+}
+
+function signedNumber(value) {
+  const numeric = finiteNumber(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function sum(values) {

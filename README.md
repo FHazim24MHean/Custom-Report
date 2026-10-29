@@ -12,6 +12,7 @@ The production service always listens on TCP port `8081`.
 - Historical value and power-quality event reports
 - Group-filtered compliance and metric-health analytics
 - In-memory energy and estimated-billing analytics
+- Live billing-system tariff and AFA integration with per-project manual overrides
 - Stable `/r/{slug}` dashboard links
 - PDF, Excel, and CSV exports
 - Local PDF and Excel libraries; no browser internet access required
@@ -23,9 +24,11 @@ The production service always listens on TCP port `8081`.
 Browser -> Custom Report Service :8081 -> GridVis REST API :8080
                   |
                   +-> versioned JSON configuration
+                  |
+                  +-> Billing API :3004 (optional)
 ```
 
-Historical measurements remain in GridVis. The JSON store contains configuration only: groups, assignments, labels, transformer mappings, thresholds, and report links.
+Historical measurements remain in GridVis. The JSON store contains configuration only: groups, assignments, labels, transformer mappings, thresholds, report links, and per-project manual billing overrides.
 
 Generating a historical-values report creates one temporary browser report session with three result tabs: **Data Report**, **Analytics**, and **Billing Analytics**. Closing or reloading the browser discards the generated measurements, analytics, billing calculations, and temporary tariff values.
 
@@ -67,6 +70,7 @@ Set the environment and start the service:
 
 ```powershell
 $env:API_ORIGIN = "http://192.228.0.135:8080"
+$env:BILLING_API_ORIGIN = "http://127.0.0.1:3004"
 $env:REPORT_USERNAME = "reportadmin"
 $env:REPORT_PASSWORD_HASH = "scrypt:..."
 npm start
@@ -121,9 +125,11 @@ Analytics does not make additional GridVis requests or persist measurement histo
 
 ## Billing Analytics
 
-The **Billing Analytics** result tab uses GridVis `ActiveEnergyConsumed`, `ActiveEnergySupplied`, and `PowerActive` values when the selected meter exposes them. It calculates imported/exported kWh, maximum demand, average power factor, data coverage, and estimated charges.
+The **Billing Analytics** result tab uses GridVis `ActiveEnergyConsumed`, `ActiveEnergySupplied`, and `PowerActive` values when the selected meter exposes them. It calculates imported/exported kWh, maximum demand, average power factor, data coverage, AFA adjustments, and estimated charges.
 
-Import rate, export credit, demand rate, fixed charge, tax, and currency are temporary browser-session inputs. They are not written to JSON. PDF and Excel exports include the tariff assumptions, billing summary, and meter detail that existed when the export was generated.
+Under **Configuration > Billing Configuration**, users can inspect the active tariff list and current AFA returned by the billing application. Each project can use those system values or save a manual report override in the Custom Report JSON store. System mode uses the active flat energy rate, compatible RM/kW demand rates, and current AFA. It does not alter the billing application's database.
+
+Users can still adjust import rate, export credit, demand rate, fixed charge, tax, currency, and AFA for the current generated report. These session edits are not saved. PDF and Excel exports include the effective rate source, tariff assumptions, billing summary, AFA charge, and meter detail.
 
 Billing output is an estimate and is not an invoice. A meter without consumed active-energy data remains visible as unavailable instead of receiving an inferred charge.
 
