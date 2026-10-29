@@ -10,6 +10,8 @@ import {
 import { fetchWithRetry, runTaskPool } from "/js/api/request-pool.mjs";
 import {
   buildAnalyticsSummary,
+  buildParameterTrend,
+  buildScopeKey,
   getAnalyticsScopeOptions,
 } from "/js/domain/report-analytics.mjs";
 import { buildBillingAnalytics } from "/js/domain/billing-analytics.mjs";
@@ -42,6 +44,19 @@ import {
 let REPORT_LINK_REQUEST = parseReportLinkRequest(window.location.search);
 let REPORT_LINK_LOAD_ERROR = "";
 
+const ANALYTICS_TREND_METRICS = [
+  { key: "V_AVG", label: "Voltage Average", unit: "V", decimals: 2 },
+  { key: "A_AVG", label: "Current Average", unit: "A", decimals: 2 },
+  { key: "LOAD_PERCENT", label: "Load", unit: "%", decimals: 2 },
+  { key: "POWER_FACTOR", label: "Power Factor", unit: "", decimals: 3 },
+  { key: "V_UNBALANCE", label: "Voltage Unbalance", unit: "%", decimals: 2 },
+  { key: "A_UNBALANCE", label: "Current Unbalance", unit: "%", decimals: 2 },
+  { key: "POWER_ACTIVE_SUM", label: "Active Power", unit: "kW", decimals: 2, scale: 0.001 },
+  { key: "TEMPERATURE_EXTERNAL", label: "External Temperature", unit: "degC", decimals: 2 },
+  { key: "TOP_OIL_TEMPERATURE", label: "Top Oil Temperature", unit: "degC", decimals: 2 },
+  { key: "WINDING_TEMPERATURE", label: "Winding Temperature", unit: "degC", decimals: 2 },
+];
+
 const state = {
   projects: [],
   devices: [],
@@ -68,6 +83,8 @@ const state = {
   activeResultTab: "data",
   reportSession: null,
   analyticsScopeKey: "all",
+  analyticsDeviceId: "",
+  analyticsMetricKey: "",
   billingTariff: {
     currency: "MYR",
     energyRate: 0,
@@ -143,6 +160,14 @@ const analyticsScopeSelect = document.getElementById("analyticsScopeSelect");
 const analyticsEmptyState = document.getElementById("analyticsEmptyState");
 const analyticsContent = document.getElementById("analyticsContent");
 const analyticsKpis = document.getElementById("analyticsKpis");
+const analyticsDeviceSelect = document.getElementById("analyticsDeviceSelect");
+const analyticsMetricSelect = document.getElementById("analyticsMetricSelect");
+const analyticsAnnualChartTitle = document.getElementById("analyticsAnnualChartTitle");
+const analyticsAnnualChart = document.getElementById("analyticsAnnualChart");
+const analyticsMonthlyChartTitle = document.getElementById("analyticsMonthlyChartTitle");
+const analyticsMonthlyLegend = document.getElementById("analyticsMonthlyLegend");
+const analyticsMonthlyChart = document.getElementById("analyticsMonthlyChart");
+const analyticsTrendMessage = document.getElementById("analyticsTrendMessage");
 const analyticsGroupTableBody = document.getElementById("analyticsGroupTableBody");
 const analyticsMetricTableBody = document.getElementById("analyticsMetricTableBody");
 const billingContext = document.getElementById("billingContext");
@@ -289,6 +314,15 @@ function bindEvents() {
 
   analyticsScopeSelect.addEventListener("change", () => {
     state.analyticsScopeKey = analyticsScopeSelect.value || "all";
+    renderAnalyticsPage();
+  });
+  analyticsDeviceSelect.addEventListener("change", () => {
+    state.analyticsDeviceId = analyticsDeviceSelect.value || "";
+    state.analyticsMetricKey = "";
+    renderAnalyticsPage();
+  });
+  analyticsMetricSelect.addEventListener("change", () => {
+    state.analyticsMetricKey = analyticsMetricSelect.value || "";
     renderAnalyticsPage();
   });
 
@@ -843,6 +877,7 @@ function renderAnalyticsPage() {
     scopeKey: state.analyticsScopeKey,
   });
   renderAnalyticsKpis(summary);
+  renderAnalyticsTrends();
   renderAnalyticsGroupTable(summary.groups);
   renderAnalyticsMetricTable(summary.metrics);
 }
@@ -944,6 +979,220 @@ function renderAnalyticsMetricTable(metrics) {
     appendAnalyticsRateCell(row, metric.complianceRate);
     analyticsMetricTableBody.appendChild(row);
   });
+}
+
+function renderAnalyticsTrends() {
+  const deviceTables = getAnalyticsTrendDeviceTables();
+  const validDeviceIds = new Set(deviceTables.map((table) => String(table?.deviceId || "")));
+  if (!validDeviceIds.has(state.analyticsDeviceId)) {
+    state.analyticsDeviceId = String(deviceTables[0]?.deviceId || "");
+  }
+
+  analyticsDeviceSelect.innerHTML = "";
+  deviceTables.forEach((deviceTable) => {
+    const option = document.createElement("option");
+    option.value = String(deviceTable.deviceId || "");
+    option.textContent = deviceTable.label || getDeviceDisplayName(deviceTable.deviceId);
+    analyticsDeviceSelect.appendChild(option);
+  });
+  analyticsDeviceSelect.value = state.analyticsDeviceId;
+
+  const selectedTable = deviceTables.find(
+    (table) => String(table?.deviceId || "") === state.analyticsDeviceId
+  );
+  const availableMetrics = ANALYTICS_TREND_METRICS.filter(
+    (metric) => getAnalyticsTrendSamples(selectedTable, metric).length > 0
+  );
+  const validMetricKeys = new Set(availableMetrics.map((metric) => metric.key));
+  if (!validMetricKeys.has(state.analyticsMetricKey)) {
+    state.analyticsMetricKey = availableMetrics[0]?.key || "";
+  }
+
+  analyticsMetricSelect.innerHTML = "";
+  availableMetrics.forEach((metric) => {
+    const option = document.createElement("option");
+    option.value = metric.key;
+    option.textContent = metric.unit ? `${metric.label} (${metric.unit})` : metric.label;
+    analyticsMetricSelect.appendChild(option);
+  });
+  analyticsMetricSelect.value = state.analyticsMetricKey;
+  analyticsDeviceSelect.disabled = !deviceTables.length;
+  analyticsMetricSelect.disabled = !availableMetrics.length;
+
+  const metric = availableMetrics.find((item) => item.key === state.analyticsMetricKey);
+  if (!selectedTable || !metric) {
+    analyticsAnnualChartTitle.textContent = "Monthly average";
+    analyticsMonthlyChartTitle.textContent = "Latest month vs previous month";
+    analyticsMonthlyLegend.innerHTML = "";
+    renderAnalyticsChartEmpty(analyticsAnnualChart, "No numeric parameter history is available for this scope.");
+    renderAnalyticsChartEmpty(analyticsMonthlyChart, "Select a device with historical parameter data.");
+    analyticsTrendMessage.textContent = "The chart uses numeric values retained in the generated report.";
+    return;
+  }
+
+  const trend = buildParameterTrend(getAnalyticsTrendSamples(selectedTable, metric));
+  const annualValues = trend.annual.points.map((point) => point.average);
+  const annualRanges = trend.annual.points.map((point) => ({ min: point.min, max: point.max }));
+  const unitSuffix = metric.unit ? ` (${metric.unit})` : "";
+  analyticsAnnualChartTitle.textContent = `${metric.label} | ${trend.annual.label || "No annual range"}${unitSuffix}`;
+  renderAnalyticsLineChart(analyticsAnnualChart, {
+    ariaLabel: `${metric.label} monthly statistics for ${trend.annual.label || "the generated report"}`,
+    xLabels: trend.annual.points.map((point) => point.label),
+    series: [{ label: "Monthly average", color: "#0f766e", values: annualValues }],
+    ranges: annualRanges,
+    decimals: metric.decimals,
+    unit: metric.unit,
+  });
+
+  const comparison = trend.monthlyComparison;
+  if (!comparison.current || !comparison.previous) {
+    analyticsMonthlyChartTitle.textContent = "Latest month vs previous month";
+    analyticsMonthlyLegend.innerHTML = "";
+    renderAnalyticsChartEmpty(analyticsMonthlyChart, "At least one valid timestamp is required.");
+  } else {
+    const currentValues = comparison.days.map(
+      (day) => comparison.current.points[day - 1]?.average ?? null
+    );
+    const previousValues = comparison.days.map(
+      (day) => comparison.previous.points[day - 1]?.average ?? null
+    );
+    analyticsMonthlyChartTitle.textContent = `${comparison.current.label} vs ${comparison.previous.label}${unitSuffix}`;
+    analyticsMonthlyLegend.innerHTML = `
+      <span><i class="analytics-line-key current"></i>${escapeHtml(comparison.current.label)}</span>
+      <span><i class="analytics-line-key previous"></i>${escapeHtml(comparison.previous.label)}</span>
+    `;
+    renderAnalyticsLineChart(analyticsMonthlyChart, {
+      ariaLabel: `${metric.label} comparison for ${comparison.current.label} and ${comparison.previous.label}`,
+      xLabels: comparison.days.map(String),
+      series: [
+        { label: comparison.current.label, color: "#0f766e", values: currentValues },
+        { label: comparison.previous.label, color: "#d97706", values: previousValues },
+      ],
+      decimals: metric.decimals,
+      unit: metric.unit,
+      compactDayLabels: true,
+    });
+  }
+
+  const monthsAvailable = trend.annual.points.filter((point) => point.count > 0).length;
+  const previousMonthAvailable = comparison.previous?.points.some((point) => point.count > 0);
+  const messages = [`${trend.sampleCount} reading(s) available; ${monthsAvailable} of the latest 12 months are plotted.`];
+  if (monthsAvailable < 12) messages.push("Generate Last 365 Days or a full-year custom range for a complete annual chart.");
+  if (!previousMonthAvailable) messages.push("The previous month is outside the generated report range.");
+  analyticsTrendMessage.textContent = messages.join(" ");
+}
+
+function getAnalyticsTrendDeviceTables() {
+  return (Array.isArray(state.latestDeviceTables) ? state.latestDeviceTables : [])
+    .filter((deviceTable) => {
+      if (state.analyticsScopeKey === "all") return true;
+      const deviceId = String(deviceTable?.deviceId || "");
+      const mainIntake = isDeviceAssignedToMainIntake(deviceId);
+      const groupType = mainIntake ? "main-intake" : "substation";
+      const groupName = mainIntake
+        ? getProjectAssignedMainIntake(state.projectName, deviceId) || "Unassigned"
+        : getProjectAssignedSubstation(state.projectName, deviceId) || "Unassigned";
+      return buildScopeKey(groupType, groupName) === state.analyticsScopeKey;
+    })
+    .sort((left, right) => String(left?.label || "").localeCompare(String(right?.label || "")));
+}
+
+function getAnalyticsTrendSamples(deviceTable, metric) {
+  const scale = Number.isFinite(metric?.scale) ? metric.scale : 1;
+  return (Array.isArray(deviceTable?.rows) ? deviceTable.rows : [])
+    .map((row) => {
+      const metrics = { ...row, ...buildDerivedNominalMetrics(row) };
+      const rawValue = parseNumericValue(metrics?.[metric?.key]);
+      return {
+        capturedAt: row?._capturedAt,
+        value: Number.isFinite(rawValue) ? rawValue * scale : Number.NaN,
+      };
+    })
+    .filter((sample) => sample.capturedAt && Number.isFinite(sample.value));
+}
+
+function renderAnalyticsChartEmpty(container, message) {
+  container.innerHTML = `<div class="analytics-chart-empty">${escapeHtml(message)}</div>`;
+}
+
+function renderAnalyticsLineChart(container, options) {
+  const width = 760;
+  const height = 300;
+  const margin = { top: 24, right: 20, bottom: 42, left: 64 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const xLabels = Array.isArray(options?.xLabels) ? options.xLabels : [];
+  const series = Array.isArray(options?.series) ? options.series : [];
+  const ranges = Array.isArray(options?.ranges) ? options.ranges : [];
+  const values = [
+    ...series.flatMap((item) => item.values || []),
+    ...ranges.flatMap((range) => [range?.min, range?.max]),
+  ].filter(Number.isFinite);
+  if (!values.length || !xLabels.length) {
+    renderAnalyticsChartEmpty(container, "No values are available for this chart period.");
+    return;
+  }
+
+  let yMin = Math.min(...values);
+  let yMax = Math.max(...values);
+  const rawSpan = yMax - yMin;
+  const padding = rawSpan > 0 ? rawSpan * 0.12 : Math.max(Math.abs(yMax) * 0.08, 1);
+  yMin -= padding;
+  yMax += padding;
+  const ySpan = yMax - yMin || 1;
+  const xAt = (index) => margin.left + (xLabels.length === 1 ? plotWidth / 2 : (index / (xLabels.length - 1)) * plotWidth);
+  const yAt = (value) => margin.top + ((yMax - value) / ySpan) * plotHeight;
+  const formatValue = (value) => `${Number(value).toFixed(options?.decimals ?? 2)}${options?.unit ? ` ${options.unit}` : ""}`;
+  const grid = [];
+  for (let index = 0; index < 5; index += 1) {
+    const ratio = index / 4;
+    const y = margin.top + ratio * plotHeight;
+    const value = yMax - ratio * ySpan;
+    grid.push(`<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" class="analytics-chart-gridline"/>`);
+    grid.push(`<text x="${margin.left - 10}" y="${y + 4}" text-anchor="end" class="analytics-chart-axis-label">${escapeHtml(formatValue(value))}</text>`);
+  }
+
+  const labelStep = options?.compactDayLabels ? 5 : 1;
+  const xAxisLabels = xLabels.map((label, index) => {
+    const show = !options?.compactDayLabels || index === 0 || index === xLabels.length - 1 || (index + 1) % labelStep === 0;
+    return show
+      ? `<text x="${xAt(index)}" y="${height - 14}" text-anchor="middle" class="analytics-chart-axis-label">${escapeHtml(label)}</text>`
+      : "";
+  }).join("");
+
+  const rangeMarks = ranges.map((range, index) => {
+    if (!Number.isFinite(range?.min) || !Number.isFinite(range?.max)) return "";
+    const x = xAt(index);
+    return `<g class="analytics-chart-range"><line x1="${x}" y1="${yAt(range.max)}" x2="${x}" y2="${yAt(range.min)}"/><line x1="${x - 4}" y1="${yAt(range.max)}" x2="${x + 4}" y2="${yAt(range.max)}"/><line x1="${x - 4}" y1="${yAt(range.min)}" x2="${x + 4}" y2="${yAt(range.min)}"/></g>`;
+  }).join("");
+
+  const seriesMarkup = series.map((item) => {
+    const points = Array.isArray(item.values) ? item.values : [];
+    let path = "";
+    let open = false;
+    points.forEach((value, index) => {
+      if (!Number.isFinite(value)) {
+        open = false;
+        return;
+      }
+      path += `${open ? " L" : " M"}${xAt(index).toFixed(2)} ${yAt(value).toFixed(2)}`;
+      open = true;
+    });
+    const circles = points.map((value, index) => Number.isFinite(value)
+      ? `<circle cx="${xAt(index)}" cy="${yAt(value)}" r="4" fill="${item.color}" class="analytics-chart-point"><title>${escapeHtml(`${item.label} | ${xLabels[index]} | ${formatValue(value)}`)}</title></circle>`
+      : "").join("");
+    return `<path d="${path.trim()}" fill="none" stroke="${item.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${circles}`;
+  }).join("");
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options?.ariaLabel || "Parameter trend chart")}">
+      ${grid.join("")}
+      <line x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${width - margin.right}" y2="${margin.top + plotHeight}" class="analytics-chart-axis"/>
+      ${xAxisLabels}
+      ${rangeMarks}
+      ${seriesMarkup}
+    </svg>
+  `;
 }
 
 function appendAnalyticsCell(row, value, className = "") {

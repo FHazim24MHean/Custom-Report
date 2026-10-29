@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildAnalyticsSummary,
+  buildParameterTrend,
   buildScopeKey,
   getAnalyticsScopeOptions,
   getRowStatus,
@@ -65,4 +66,38 @@ test("lists stable group filter options", () => {
 test("a failed metric takes precedence over warning and pass", () => {
   assert.equal(getRowStatus({ metricStatuses: { A: "warning", B: "fail" } }), "fail");
   assert.equal(getRowStatus({ metricStatuses: {} }), "unavailable");
+});
+
+test("builds annual statistics and compares the latest two months", () => {
+  const trend = buildParameterTrend([
+    { capturedAt: "2026-01-05 00:00:00", value: 10 },
+    { capturedAt: "2026-01-15 00:00:00", value: 20 },
+    { capturedAt: "2026-09-01 00:00:00", value: 30 },
+    { capturedAt: "2026-09-02 00:00:00", value: 40 },
+    { capturedAt: "2026-10-01 00:00:00", value: 50 },
+    { capturedAt: "2026-10-02 00:00:00", value: 60 },
+  ]);
+
+  assert.equal(trend.annual.year, 2026);
+  assert.deepEqual(trend.annual.points[2], {
+    year: 2026,
+    month: 0,
+    label: "Jan 26",
+    average: 15,
+    min: 10,
+    max: 20,
+    count: 2,
+  });
+  assert.equal(trend.annual.label, "November 2025 - October 2026");
+  assert.equal(trend.monthlyComparison.current.label, "October 2026");
+  assert.equal(trend.monthlyComparison.previous.label, "September 2026");
+  assert.equal(trend.monthlyComparison.current.points[1].average, 60);
+  assert.equal(trend.monthlyComparison.previous.points[1].average, 40);
+});
+
+test("returns empty trend points when parameter data is unavailable", () => {
+  const trend = buildParameterTrend([{ capturedAt: "bad", value: "N/A" }]);
+  assert.equal(trend.sampleCount, 0);
+  assert.equal(trend.annual.points.length, 12);
+  assert.equal(trend.monthlyComparison.current, null);
 });

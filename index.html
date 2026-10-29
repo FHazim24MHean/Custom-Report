@@ -172,6 +172,49 @@
         <div id="analyticsContent" class="hidden">
           <section id="analyticsKpis" class="analytics-kpi-grid" aria-label="Analytics summary"></section>
 
+          <section class="analytics-panel analytics-trend-panel">
+            <div class="analytics-panel-heading analytics-trend-heading">
+              <div>
+                <p class="analytics-eyebrow">Historical statistics</p>
+                <h3>Device Parameter Trends</h3>
+                <p class="config-copy">Monthly statistics and latest-month comparison from the generated GridVis report range.</p>
+              </div>
+              <div class="analytics-trend-controls">
+                <label class="field-group" for="analyticsDeviceSelect">
+                  <span class="field-label">Device</span>
+                  <select id="analyticsDeviceSelect" class="input-control"></select>
+                </label>
+                <label class="field-group" for="analyticsMetricSelect">
+                  <span class="field-label">Parameter</span>
+                  <select id="analyticsMetricSelect" class="input-control"></select>
+                </label>
+              </div>
+            </div>
+            <div class="analytics-chart-grid">
+              <article class="analytics-chart-card">
+                <div class="analytics-chart-title">
+                  <div>
+                    <span>Annual Statistics</span>
+                    <strong id="analyticsAnnualChartTitle">Monthly average</strong>
+                  </div>
+                  <span class="analytics-chart-key"><i class="analytics-line-key annual"></i>Average and range</span>
+                </div>
+                <div id="analyticsAnnualChart" class="analytics-chart" aria-live="polite"></div>
+              </article>
+              <article class="analytics-chart-card">
+                <div class="analytics-chart-title">
+                  <div>
+                    <span>Monthly Comparison</span>
+                    <strong id="analyticsMonthlyChartTitle">Latest month vs previous month</strong>
+                  </div>
+                  <div id="analyticsMonthlyLegend" class="analytics-chart-legend"></div>
+                </div>
+                <div id="analyticsMonthlyChart" class="analytics-chart" aria-live="polite"></div>
+              </article>
+            </div>
+            <p id="analyticsTrendMessage" class="analytics-trend-message"></p>
+          </section>
+
           <section class="analytics-panel">
             <div class="analytics-panel-heading">
               <div>
