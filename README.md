@@ -12,7 +12,7 @@ The production service always listens on TCP port `8081`.
 - Historical value and power-quality event reports
 - Group-filtered compliance and metric-health analytics
 - In-memory energy and estimated-billing analytics
-- Live billing-system tariff and AFA integration with per-project manual overrides
+- Per-project tariff, AFA, and Time of Use configuration
 - Stable `/r/{slug}` dashboard links
 - PDF, Excel, and CSV exports
 - Local PDF and Excel libraries; no browser internet access required
@@ -24,13 +24,11 @@ The production service always listens on TCP port `8081`.
 Browser -> Custom Report Service :8081 -> GridVis REST API :8080
                   |
                   +-> versioned JSON configuration
-                  |
-                  +-> Billing API :3004 (optional)
 ```
 
-Historical measurements remain in GridVis. The JSON store contains configuration only: groups, assignments, labels, transformer mappings, thresholds, report links, and per-project manual billing overrides.
+Historical measurements remain in GridVis. The JSON store contains configuration only: groups, assignments, labels, transformer mappings, thresholds, report links, tariff rates, AFA, and Time of Use rules.
 
-Generating a historical-values report creates one temporary browser report session with three result tabs: **Data Report**, **Analytics**, and **Billing Analytics**. Closing or reloading the browser discards the generated measurements, analytics, billing calculations, and temporary tariff values.
+Generating a historical-values report creates one temporary browser report session with three result tabs: **Data Report**, **Analytics**, and **Billing Analytics**. Closing or reloading the browser discards the generated measurements and calculations; saved project billing configuration remains available.
 
 ## Repository Layout
 
@@ -70,13 +68,14 @@ Set the environment and start the service:
 
 ```powershell
 $env:API_ORIGIN = "http://192.228.0.135:8080"
-$env:BILLING_API_ORIGIN = "http://127.0.0.1:3004"
 $env:REPORT_USERNAME = "reportadmin"
 $env:REPORT_PASSWORD_HASH = "scrypt:..."
 npm start
 ```
 
 Open `http://127.0.0.1:8081`.
+
+Tariff rates, AFA, and Time of Use rules are configured per project in the app. Measurement data continues to come from GridVis and is not copied into the JSON configuration store.
 
 Optional upstream authentication variables:
 

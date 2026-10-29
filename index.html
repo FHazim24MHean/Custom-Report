@@ -238,11 +238,11 @@
           <div class="billing-data-badge">GridVis energy data</div>
         </header>
 
-        <section class="billing-tariff-panel" aria-label="Temporary billing tariff">
+        <section class="billing-tariff-panel" aria-label="Report billing tariff">
           <div class="billing-tariff-heading">
             <div>
-              <h3>Temporary Tariff</h3>
-              <p class="config-copy">These rates apply to this browser session only and are never written to configuration.</p>
+              <h3>Report Tariff</h3>
+              <p class="config-copy">Loaded from the project configuration. Changes here apply only to this generated report.</p>
             </div>
             <button id="recalculateBillingButton" class="generate-button" type="button">Recalculate</button>
           </div>
@@ -255,9 +255,24 @@
                 <option value="SGD">SGD</option>
               </select>
             </label>
+            <label class="field-group" for="billingRateModeSelect">
+              <span class="field-label">Rate mode</span>
+              <select id="billingRateModeSelect" class="input-control">
+                <option value="flat">Flat rate</option>
+                <option value="tou">Time of Use</option>
+              </select>
+            </label>
             <label class="field-group" for="billingEnergyRateInput">
-              <span class="field-label">Import rate / kWh</span>
+              <span class="field-label">Flat rate / kWh</span>
               <input id="billingEnergyRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+            </label>
+            <label class="field-group" for="billingPeakRateInput">
+              <span class="field-label">Peak rate / kWh</span>
+              <input id="billingPeakRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+            </label>
+            <label class="field-group" for="billingOffPeakRateInput">
+              <span class="field-label">Off-peak rate / kWh</span>
+              <input id="billingOffPeakRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
             </label>
             <label class="field-group" for="billingExportRateInput">
               <span class="field-label">Export credit / kWh</span>
@@ -301,6 +316,8 @@
                   <th>Opening kWh</th>
                   <th>Closing kWh</th>
                   <th>Import kWh</th>
+                  <th>Peak kWh</th>
+                  <th>Off-peak kWh</th>
                   <th>Export kWh</th>
                   <th>Max Demand kW</th>
                   <th>Avg PF</th>
@@ -597,48 +614,14 @@
 
         <section id="billingConfigurationPanel" class="config-module-panel hidden" role="tabpanel" aria-labelledby="billingConfigurationTab">
           <div class="billing-config-grid">
-            <section class="config-card billing-system-card">
-              <div class="billing-config-heading">
-                <div>
-                  <h3>Billing System Values</h3>
-                  <p class="config-copy">Live read-only values from the billing application. The billing service is the source of truth.</p>
-                </div>
-                <button id="refreshBillingSystemButton" class="secondary-button" type="button">Refresh</button>
-              </div>
-              <p id="billingSystemStatus" class="billing-source-status">Billing system has not been checked.</p>
-              <div id="billingSystemSummary" class="billing-system-summary"></div>
-              <div class="table-wrap billing-config-table-wrap">
-                <table class="report-table billing-config-table">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Tariff</th>
-                      <th>Peak RM/kWh</th>
-                      <th>Off-peak RM/kWh</th>
-                      <th>Flat RM/kWh</th>
-                      <th>Capacity</th>
-                      <th>Network</th>
-                      <th>Minimum Charge</th>
-                    </tr>
-                  </thead>
-                  <tbody id="billingSystemTariffBody">
-                    <tr class="empty-row"><td colspan="8">Refresh to load tariff rates.</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section class="config-card billing-override-card">
-              <h3>Report Billing Source</h3>
-              <p class="config-copy">Choose live system values or save a manual estimate for the selected Custom Report project.</p>
-              <label class="field-group" for="billingConfigModeSelect">
-                <span class="field-label">Rate source</span>
-                <select id="billingConfigModeSelect" class="input-control">
-                  <option value="system">Billing system</option>
-                  <option value="manual">Manual override</option>
-                </select>
-              </label>
-              <div id="billingManualFields" class="billing-manual-grid hidden">
+            <section class="config-card">
+              <h3>Tariff Rates</h3>
+              <p class="config-copy">Rates are saved locally for the selected GridVis project.</p>
+              <div class="billing-manual-grid">
+                <label class="field-group" for="billingConfigTariffNameInput">
+                  <span class="field-label">Tariff name</span>
+                  <input id="billingConfigTariffNameInput" class="input-control" type="text" value="Custom tariff">
+                </label>
                 <label class="field-group" for="billingConfigCurrencySelect">
                   <span class="field-label">Currency</span>
                   <select id="billingConfigCurrencySelect" class="input-control">
@@ -647,9 +630,24 @@
                     <option value="SGD">SGD</option>
                   </select>
                 </label>
+                <label class="field-group" for="billingConfigUseTouSelect">
+                  <span class="field-label">Rate mode</span>
+                  <select id="billingConfigUseTouSelect" class="input-control">
+                    <option value="false">Flat rate</option>
+                    <option value="true">Time of Use</option>
+                  </select>
+                </label>
                 <label class="field-group" for="billingConfigEnergyRateInput">
-                  <span class="field-label">Import rate / kWh</span>
+                  <span class="field-label">Flat rate / kWh</span>
                   <input id="billingConfigEnergyRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+                </label>
+                <label class="field-group" for="billingConfigPeakRateInput">
+                  <span class="field-label">Peak rate / kWh</span>
+                  <input id="billingConfigPeakRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
+                </label>
+                <label class="field-group" for="billingConfigOffPeakRateInput">
+                  <span class="field-label">Off-peak rate / kWh</span>
+                  <input id="billingConfigOffPeakRateInput" class="input-control" type="number" min="0" step="0.0001" value="0">
                 </label>
                 <label class="field-group" for="billingConfigExportRateInput">
                   <span class="field-label">Export credit / kWh</span>
@@ -663,6 +661,10 @@
                   <span class="field-label">Fixed charge / meter</span>
                   <input id="billingConfigFixedChargeInput" class="input-control" type="number" min="0" step="0.01" value="0">
                 </label>
+                <label class="field-group" for="billingConfigMinimumChargeInput">
+                  <span class="field-label">Minimum charge / meter</span>
+                  <input id="billingConfigMinimumChargeInput" class="input-control" type="number" min="0" step="0.01" value="0">
+                </label>
                 <label class="field-group" for="billingConfigTaxInput">
                   <span class="field-label">Tax (%)</span>
                   <input id="billingConfigTaxInput" class="input-control" type="number" min="0" step="0.01" value="0">
@@ -672,7 +674,34 @@
                   <input id="billingConfigAfaRateInput" class="input-control" type="number" step="0.0001" value="0">
                 </label>
               </div>
-              <p id="billingConfigHint" class="config-copy">Reports will use the active billing-system tariff and current AFA.</p>
+            </section>
+
+            <section class="config-card billing-override-card">
+              <h3>Time of Use Rules</h3>
+              <p class="config-copy">Selected days within the peak window use the peak rate. All other readings use the off-peak rate.</p>
+              <div class="billing-manual-grid">
+                <label class="field-group" for="billingConfigPeakStartInput">
+                  <span class="field-label">Peak starts</span>
+                  <input id="billingConfigPeakStartInput" class="input-control" type="time" value="08:00">
+                </label>
+                <label class="field-group" for="billingConfigPeakEndInput">
+                  <span class="field-label">Peak ends</span>
+                  <input id="billingConfigPeakEndInput" class="input-control" type="time" value="22:00">
+                </label>
+              </div>
+              <fieldset class="billing-day-fieldset">
+                <legend>Peak days</legend>
+                <div id="billingConfigPeakDays" class="billing-day-grid">
+                  <label><input type="checkbox" value="1"> Mon</label>
+                  <label><input type="checkbox" value="2"> Tue</label>
+                  <label><input type="checkbox" value="3"> Wed</label>
+                  <label><input type="checkbox" value="4"> Thu</label>
+                  <label><input type="checkbox" value="5"> Fri</label>
+                  <label><input type="checkbox" value="6"> Sat</label>
+                  <label><input type="checkbox" value="0"> Sun</label>
+                </div>
+              </fieldset>
+              <p id="billingConfigHint" class="config-copy">Select a project in Device Management before saving billing configuration.</p>
               <div class="config-actions">
                 <button id="saveBillingConfigurationButton" class="generate-button" type="button">Save Billing Configuration</button>
               </div>

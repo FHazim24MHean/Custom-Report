@@ -21,11 +21,17 @@ test("persists project groups, thresholds, transformer mappings, and billing con
     { htDeviceId: "101", lvDeviceId: "102", label: "TX1" },
   ]);
   await store.replaceBillingConfiguration("Project A", {
-    mode: "manual",
+    tariffName: "C1 ToU",
     currency: "MYR",
-    energyRate: 0.345,
+    useTou: true,
+    flatEnergyRate: 0.345,
+    peakEnergyRate: 0.42,
+    offPeakEnergyRate: 0.28,
     demandRate: 43.6,
     afaRateSen: -0.47,
+    peakStartTime: "08:00",
+    peakEndTime: "22:00",
+    peakDays: [1, 2, 3, 4, 5],
   });
 
   const project = await store.getProject("Project A");
@@ -33,14 +39,21 @@ test("persists project groups, thresholds, transformer mappings, and billing con
   assert.deepEqual(project.thresholdOverridesByDevice[101].POWER_FACTOR, { min: 0.9, max: 1 });
   assert.equal(project.transformerMappings[0].label, "TX1");
   assert.deepEqual(project.billingConfiguration, {
-    mode: "manual",
+    tariffName: "C1 ToU",
     currency: "MYR",
-    energyRate: 0.345,
+    useTou: true,
+    flatEnergyRate: 0.345,
+    peakEnergyRate: 0.42,
+    offPeakEnergyRate: 0.28,
     exportRate: 0,
     demandRate: 43.6,
     fixedCharge: 0,
+    minimumCharge: 0,
     taxPercent: 0,
     afaRateSen: -0.47,
+    peakStartTime: "08:00",
+    peakEndTime: "22:00",
+    peakDays: [1, 2, 3, 4, 5],
   });
 });
 

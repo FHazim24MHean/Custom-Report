@@ -7,14 +7,12 @@ loadEnvironmentFile(process.env.SERVICE_ENV_FILE);
 
 const PORT = Number(process.env.PORT || 8081);
 const API_ORIGIN = process.env.API_ORIGIN || "http://gridvisdemo.site:8080";
-const BILLING_API_ORIGIN = process.env.BILLING_API_ORIGIN || "http://127.0.0.1:3004";
 const STATIC_ROOT = process.cwd();
 const metadataPath = resolveMetadataPath(STATIC_ROOT);
 const upstreamHeaders = getUpstreamHeaders();
 
 const server = createReportServer({
   apiOrigin: API_ORIGIN,
-  billingApiOrigin: BILLING_API_ORIGIN,
   staticRoot: STATIC_ROOT,
   metadataPath,
   username: process.env.REPORT_USERNAME,
@@ -26,7 +24,6 @@ const server = createReportServer({
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`Proxying /rest/* to ${new URL("/rest/", API_ORIGIN)}`);
-  console.log(`Proxying /billing-api/* to ${new URL("/api/", BILLING_API_ORIGIN)}`);
   console.log(`Serving app configuration from ${metadataPath}`);
 });
 

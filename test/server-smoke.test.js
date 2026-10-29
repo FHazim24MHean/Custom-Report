@@ -11,19 +11,9 @@ test("serves health, browser modules, and project configuration", async (t) => {
   t.after(() => fs.promises.rm(directory, { recursive: true, force: true }));
   const server = createReportServer({
     apiOrigin: "http://127.0.0.1:9",
-    billingApiOrigin: "http://billing.test:3004",
     staticRoot: path.resolve(__dirname, ".."),
     metadataPath: path.join(directory, "metadata.json"),
     requireAuth: false,
-    fetchImpl: async (url) => {
-      if (String(url).startsWith("http://billing.test:3004/api/billing_settings")) {
-        return new Response(JSON.stringify({ use_tou: false, afa: { rate: -0.47 } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return new Response("Not found", { status: 404 });
-    },
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => {
@@ -47,7 +37,7 @@ test("serves health, browser modules, and project configuration", async (t) => {
   const project = await fetch(`${origin}/app-api/projects/Project%20A/substations`).then((response) => response.json());
   assert.deepEqual(project.thresholdOverridesByDevice, {});
   assert.deepEqual(project.transformerMappings, []);
-  assert.equal(project.billingConfiguration.mode, "system");
+  assert.equal(project.billingConfiguration.tariffName, "Custom tariff");
 
   const thresholdResponse = await fetch(`${origin}/app-api/projects/Project%20A/device-thresholds`, {
     method: "PUT",
@@ -64,19 +54,11 @@ test("serves health, browser modules, and project configuration", async (t) => {
     method: "PUT",
     headers: { Origin: origin, "Content-Type": "application/json" },
     body: JSON.stringify({
-      configuration: { mode: "manual", energyRate: 0.5, afaRateSen: -0.47 },
+      configuration: { tariffName: "C1", flatEnergyRate: 0.5, afaRateSen: -0.47 },
     }),
   });
   assert.equal(billingConfigResponse.status, 200);
   const billingProject = await billingConfigResponse.json();
-  assert.equal(billingProject.billingConfiguration.energyRate, 0.5);
+  assert.equal(billingProject.billingConfiguration.flatEnergyRate, 0.5);
   assert.equal(billingProject.billingConfiguration.afaRateSen, -0.47);
-
-  const proxiedBilling = await fetch(`${origin}/billing-api/billing_settings`).then((response) => response.json());
-  assert.equal(proxiedBilling.afa.rate, -0.47);
-  assert.equal((await fetch(`${origin}/billing-api/billing_settings`, {
-    method: "PUT",
-    headers: { Origin: origin, "Content-Type": "application/json" },
-    body: "{}",
-  })).status, 405);
 });

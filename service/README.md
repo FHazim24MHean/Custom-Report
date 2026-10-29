@@ -4,14 +4,13 @@ The package contains the report application, a portable Node.js runtime, locally
 
 The service listens on port `8081`. `ApiOrigin` identifies GridVis, normally on port `8080`; it does not set the report page address.
 
-Billing configuration is read from `BILLING_API_ORIGIN`, which defaults to `http://127.0.0.1:3004`. If the billing application runs elsewhere, update `C:\ProgramData\CustomReportGenerator\config\service.env` and restart the service.
+Tariff rates, AFA, and Time of Use rules are saved per project in the report application's JSON configuration store. All measurement data remains sourced from GridVis.
 
 ## Requirements
 
 - 64-bit Windows
 - Administrator access for installation and updates
 - Network connectivity from the service host to GridVis
-- Network connectivity to the optional billing API when system tariff/AFA values are required
 - TCP `8081` reachable from report users
 - A supported Windows account environment for the `LocalService` service account
 

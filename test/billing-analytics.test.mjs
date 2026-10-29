@@ -74,12 +74,20 @@ test("marks meters without imported energy as unavailable", () => {
 test("normalizes invalid tariff inputs to safe non-negative values", () => {
   assert.deepEqual(normalizeTariff({ energyRate: "0.4", demandRate: -5, taxPercent: "bad" }), {
     currency: "MYR",
+    useTou: false,
+    touDataAvailable: true,
     energyRate: 0.4,
+    peakEnergyRate: 0,
+    offPeakEnergyRate: 0,
     exportRate: 0,
     demandRate: 0,
     fixedCharge: 0,
+    minimumCharge: 0,
     taxPercent: 0,
     afaRate: 0,
+    peakStartTime: "08:00",
+    peakEndTime: "22:00",
+    peakDays: [1, 2, 3, 4, 5],
     sourceLabel: "Temporary tariff",
   });
 });
@@ -88,4 +96,48 @@ test("accepts a signed AFA rate while keeping other charges non-negative", () =>
   const tariff = normalizeTariff({ afaRate: "-0.0047", fixedCharge: -20 });
   assert.equal(tariff.afaRate, -0.0047);
   assert.equal(tariff.fixedCharge, 0);
+});
+
+test("applies Time of Use rates by configured day and time", () => {
+  const result = buildBillingAnalytics([{
+    deviceId: "3",
+    readings: [
+      { capturedAt: "2026-10-05T09:00:00", importMinWh: 0, importMaxWh: 100_000 },
+      { capturedAt: "2026-10-05T23:00:00", importMinWh: 100_000, importMaxWh: 150_000 },
+      { capturedAt: "2026-10-10T10:00:00", importMinWh: 150_000, importMaxWh: 200_000 },
+    ],
+  }], {
+    useTou: true,
+    peakEnergyRate: 0.6,
+    offPeakEnergyRate: 0.3,
+    peakStartTime: "08:00",
+    peakEndTime: "22:00",
+    peakDays: [1, 2, 3, 4, 5],
+  });
+
+  assert.equal(result.rows[0].peakImportedKwh, 100);
+  assert.equal(result.rows[0].offPeakImportedKwh, 100);
+  assert.equal(result.rows[0].energyCharge, 90);
+});
+
+test("enforces the configured minimum charge before tax", () => {
+  const result = buildBillingAnalytics([{
+    deviceId: "4",
+    readings: [{ capturedAt: "2026-10-05T09:00:00", importMinWh: 0, importMaxWh: 1_000 }],
+  }], { energyRate: 0.1, minimumCharge: 20, taxPercent: 10 });
+
+  assert.equal(result.rows[0].taxAmount, 2);
+  assert.equal(result.rows[0].totalCharge, 22);
+});
+
+test("withholds ToU charges when only aggregate GridVis data is available", () => {
+  const result = buildBillingAnalytics([{
+    deviceId: "5",
+    readings: [{ capturedAt: "2026-10-05T09:00:00", importMinWh: 0, importMaxWh: 100_000 }],
+  }], { useTou: true, touDataAvailable: false, peakEnergyRate: 0.6, offPeakEnergyRate: 0.3 });
+
+  assert.equal(result.touBreakdownUnavailable, true);
+  assert.equal(result.rows[0].chargeAvailable, false);
+  assert.equal(result.rows[0].totalCharge, null);
+  assert.equal(result.totalCharge, null);
 });

@@ -71,6 +71,10 @@ const state = {
   billingTariff: {
     currency: "MYR",
     energyRate: 0,
+    useTou: false,
+    touDataAvailable: false,
+    peakEnergyRate: 0,
+    offPeakEnergyRate: 0,
     exportRate: 0,
     demandRate: 0,
     fixedCharge: 0,
@@ -91,8 +95,6 @@ const state = {
   substationMappingsByProject: loadSubstationMappings(),
   transformerMappingsByProject: {},
   billingConfigurationsByProject: {},
-  billingSystem: null,
-  billingSystemError: "",
   legacyTransformerMappings: loadTransformerMappings(),
   reportLinks: [],
   editingReportLinkSlug: "",
@@ -145,7 +147,10 @@ const analyticsGroupTableBody = document.getElementById("analyticsGroupTableBody
 const analyticsMetricTableBody = document.getElementById("analyticsMetricTableBody");
 const billingContext = document.getElementById("billingContext");
 const billingCurrencySelect = document.getElementById("billingCurrencySelect");
+const billingRateModeSelect = document.getElementById("billingRateModeSelect");
 const billingEnergyRateInput = document.getElementById("billingEnergyRateInput");
+const billingPeakRateInput = document.getElementById("billingPeakRateInput");
+const billingOffPeakRateInput = document.getElementById("billingOffPeakRateInput");
 const billingExportRateInput = document.getElementById("billingExportRateInput");
 const billingDemandRateInput = document.getElementById("billingDemandRateInput");
 const billingFixedChargeInput = document.getElementById("billingFixedChargeInput");
@@ -225,19 +230,21 @@ const reportLinkEnabledCheckbox = document.getElementById("reportLinkEnabledChec
 const saveReportLinkButton = document.getElementById("saveReportLinkButton");
 const cancelReportLinkEditButton = document.getElementById("cancelReportLinkEditButton");
 const reportLinkList = document.getElementById("reportLinkList");
-const refreshBillingSystemButton = document.getElementById("refreshBillingSystemButton");
-const billingSystemStatus = document.getElementById("billingSystemStatus");
-const billingSystemSummary = document.getElementById("billingSystemSummary");
-const billingSystemTariffBody = document.getElementById("billingSystemTariffBody");
-const billingConfigModeSelect = document.getElementById("billingConfigModeSelect");
-const billingManualFields = document.getElementById("billingManualFields");
+const billingConfigTariffNameInput = document.getElementById("billingConfigTariffNameInput");
 const billingConfigCurrencySelect = document.getElementById("billingConfigCurrencySelect");
+const billingConfigUseTouSelect = document.getElementById("billingConfigUseTouSelect");
 const billingConfigEnergyRateInput = document.getElementById("billingConfigEnergyRateInput");
+const billingConfigPeakRateInput = document.getElementById("billingConfigPeakRateInput");
+const billingConfigOffPeakRateInput = document.getElementById("billingConfigOffPeakRateInput");
 const billingConfigExportRateInput = document.getElementById("billingConfigExportRateInput");
 const billingConfigDemandRateInput = document.getElementById("billingConfigDemandRateInput");
 const billingConfigFixedChargeInput = document.getElementById("billingConfigFixedChargeInput");
+const billingConfigMinimumChargeInput = document.getElementById("billingConfigMinimumChargeInput");
 const billingConfigTaxInput = document.getElementById("billingConfigTaxInput");
 const billingConfigAfaRateInput = document.getElementById("billingConfigAfaRateInput");
+const billingConfigPeakStartInput = document.getElementById("billingConfigPeakStartInput");
+const billingConfigPeakEndInput = document.getElementById("billingConfigPeakEndInput");
+const billingConfigPeakDays = document.getElementById("billingConfigPeakDays");
 const billingConfigHint = document.getElementById("billingConfigHint");
 const saveBillingConfigurationButton = document.getElementById("saveBillingConfigurationButton");
 
@@ -298,12 +305,7 @@ function bindEvents() {
   mainIntakeManagementTab.addEventListener("click", () => setActiveConfigModule("main-intakes"));
   transformerMappingTab.addEventListener("click", () => setActiveConfigModule("transformers"));
   reportLinksTab.addEventListener("click", () => setActiveConfigModule("report-links"));
-  billingConfigurationTab.addEventListener("click", async () => {
-    setActiveConfigModule("billing");
-    if (!state.billingSystem) await refreshBillingSystemValues();
-  });
-  refreshBillingSystemButton.addEventListener("click", refreshBillingSystemValues);
-  billingConfigModeSelect.addEventListener("change", renderBillingConfigurationForm);
+  billingConfigurationTab.addEventListener("click", () => setActiveConfigModule("billing"));
   saveBillingConfigurationButton.addEventListener("click", saveBillingConfiguration);
 
   deviceDropdownButton.addEventListener("click", () => {
@@ -1044,47 +1046,43 @@ function getSelectedRangeLabel() {
 function readBillingTariffInputs() {
   state.billingTariff = {
     currency: billingCurrencySelect.value || "MYR",
+    useTou: billingRateModeSelect.value === "tou",
+    touDataAvailable: state.billingTariff?.touDataAvailable === true,
     energyRate: billingEnergyRateInput.value,
+    peakEnergyRate: billingPeakRateInput.value,
+    offPeakEnergyRate: billingOffPeakRateInput.value,
     exportRate: billingExportRateInput.value,
     demandRate: billingDemandRateInput.value,
     fixedCharge: billingFixedChargeInput.value,
+    minimumCharge: state.billingTariff?.minimumCharge || 0,
     taxPercent: billingTaxInput.value,
     afaRate: finiteConfigNumber(billingAfaRateInput.value) / 100,
+    peakStartTime: state.billingTariff?.peakStartTime || "08:00",
+    peakEndTime: state.billingTariff?.peakEndTime || "22:00",
+    peakDays: state.billingTariff?.peakDays || [1, 2, 3, 4, 5],
     sourceLabel: state.billingTariff?.sourceLabel || "Session values",
   };
 }
 
 function getEffectiveBillingTariff(projectName) {
   const config = getProjectBillingConfiguration(projectName);
-  if (config.mode === "manual") {
-    return {
-      currency: config.currency,
-      energyRate: config.energyRate,
-      exportRate: config.exportRate,
-      demandRate: config.demandRate,
-      fixedCharge: config.fixedCharge,
-      taxPercent: config.taxPercent,
-      afaRate: config.afaRateSen / 100,
-      sourceLabel: "Manual project configuration",
-    };
-  }
-
-  const active = state.billingSystem?.activeTariff;
-  const afaRateSen = finiteConfigNumber(state.billingSystem?.settings?.afa?.rate);
-  const capacityUnit = String(active?.capacity_charge_unit || "").toLowerCase();
-  const networkUnit = String(active?.network_charge_unit || "").toLowerCase();
-  const supportsDemandRate = capacityUnit === "rm/kw" && networkUnit === "rm/kw";
   return {
-    currency: "MYR",
-    energyRate: finiteConfigNumber(active?.flat_energy_rate),
-    exportRate: 0,
-    demandRate: supportsDemandRate ? finiteConfigNumber(active?.max_demand_rate) : 0,
-    fixedCharge: 0,
-    taxPercent: 0,
-    afaRate: afaRateSen / 100,
-    sourceLabel: active
-      ? `Billing system: ${active.tariff || "active tariff"}`
-      : "Billing system unavailable",
+    currency: config.currency,
+    useTou: config.useTou,
+    touDataAvailable: API_CONFIG.nominalValueTimebase < 86400,
+    energyRate: config.flatEnergyRate,
+    peakEnergyRate: config.peakEnergyRate,
+    offPeakEnergyRate: config.offPeakEnergyRate,
+    exportRate: config.exportRate,
+    demandRate: config.demandRate,
+    fixedCharge: config.fixedCharge,
+    minimumCharge: config.minimumCharge,
+    taxPercent: config.taxPercent,
+    afaRate: config.afaRateSen / 100,
+    peakStartTime: config.peakStartTime,
+    peakEndTime: config.peakEndTime,
+    peakDays: config.peakDays,
+    sourceLabel: `Project tariff: ${config.tariffName}`,
   };
 }
 
@@ -1092,7 +1090,10 @@ function applyEffectiveBillingTariffToInputs(projectName) {
   const tariff = getEffectiveBillingTariff(projectName);
   state.billingTariff = tariff;
   billingCurrencySelect.value = tariff.currency;
+  billingRateModeSelect.value = tariff.useTou ? "tou" : "flat";
   billingEnergyRateInput.value = tariff.energyRate;
+  billingPeakRateInput.value = tariff.peakEnergyRate;
+  billingOffPeakRateInput.value = tariff.offPeakEnergyRate;
   billingExportRateInput.value = tariff.exportRate;
   billingDemandRateInput.value = tariff.demandRate;
   billingFixedChargeInput.value = tariff.fixedCharge;
@@ -1139,14 +1140,18 @@ function renderBillingAnalytics() {
     ? `${summary.unavailableMeterCount} meter(s) do not expose imported active-energy data for this report.`
     : "All selected meters expose imported active-energy data.";
   const zeroTariff =
-    summary.tariff.energyRate === 0 &&
+    (summary.tariff.useTou
+      ? summary.tariff.peakEnergyRate === 0 && summary.tariff.offPeakEnergyRate === 0
+      : summary.tariff.energyRate === 0) &&
     summary.tariff.demandRate === 0 &&
     summary.tariff.fixedCharge === 0 &&
     summary.tariff.afaRate === 0;
-  billingAvailabilityMessage.textContent = zeroTariff
-    ? `${unavailableText} Enter tariff rates and recalculate to estimate charges.`
-    : unavailableText;
-  billingAvailabilityMessage.classList.toggle("warning", summary.unavailableMeterCount > 0);
+  billingAvailabilityMessage.textContent = summary.touBreakdownUnavailable
+    ? "ToU rules are saved, but the current GridVis report uses 24-hour aggregates. Peak/off-peak energy charges are withheld until interval readings are available."
+    : zeroTariff
+      ? `${unavailableText} Enter tariff rates and recalculate to estimate charges.`
+      : unavailableText;
+  billingAvailabilityMessage.classList.toggle("warning", summary.unavailableMeterCount > 0 || summary.touBreakdownUnavailable);
 }
 
 function renderBillingKpis(summary) {
@@ -1160,7 +1165,9 @@ function renderBillingKpis(summary) {
     {
       label: "Imported energy",
       value: `${formatBillingNumber(summary.totalImportedKwh, 2)} kWh`,
-      note: `${formatBillingNumber(summary.totalExportedKwh, 2)} kWh exported`,
+      note: summary.tariff.useTou
+        ? `${formatBillingNumber(summary.totalPeakImportedKwh, 2)} peak | ${formatBillingNumber(summary.totalOffPeakImportedKwh, 2)} off-peak`
+        : `${formatBillingNumber(summary.totalExportedKwh, 2)} kWh exported`,
       className: "accent",
     },
     {
@@ -1175,8 +1182,8 @@ function renderBillingKpis(summary) {
     },
     {
       label: "Estimated total",
-      value: formatBillingCurrency(summary.totalCharge, currency),
-      note: summary.tariff.sourceLabel,
+      value: Number.isFinite(summary.totalCharge) ? formatBillingCurrency(summary.totalCharge, currency) : "N/A",
+      note: summary.touBreakdownUnavailable ? "Interval GridVis data required for ToU" : summary.tariff.sourceLabel,
       className: "accent",
     },
   ];
@@ -1198,7 +1205,7 @@ function renderBillingTable(summary) {
   billingTableBody.innerHTML = "";
   const rows = Array.isArray(summary?.rows) ? summary.rows : [];
   if (!rows.length) {
-    billingTableBody.innerHTML = '<tr class="empty-row"><td colspan="14">No selected meters are available.</td></tr>';
+    billingTableBody.innerHTML = '<tr class="empty-row"><td colspan="16">No selected meters are available.</td></tr>';
     return;
   }
 
@@ -1213,15 +1220,17 @@ function renderBillingTable(summary) {
     appendAnalyticsCell(row, formatBillingOptionalNumber(billingRow.openingKwh, 3));
     appendAnalyticsCell(row, formatBillingOptionalNumber(billingRow.closingKwh, 3));
     appendAnalyticsCell(row, billingRow.available ? formatBillingNumber(billingRow.importedKwh, 3) : "N/A");
+    appendAnalyticsCell(row, billingRow.chargeAvailable && summary.tariff.useTou ? formatBillingNumber(billingRow.peakImportedKwh, 3) : "-");
+    appendAnalyticsCell(row, billingRow.chargeAvailable && summary.tariff.useTou ? formatBillingNumber(billingRow.offPeakImportedKwh, 3) : "-");
     appendAnalyticsCell(row, billingRow.available ? formatBillingNumber(billingRow.exportedKwh, 3) : "N/A");
     appendAnalyticsCell(row, billingRow.available ? formatBillingNumber(billingRow.maxDemandKw, 3) : "N/A");
     appendAnalyticsCell(row, formatBillingOptionalNumber(billingRow.averagePowerFactor, 3));
     appendAnalyticsCell(row, billingRow.available ? `${formatBillingNumber(billingRow.coveragePercent, 1)}%` : "N/A");
-    appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.energyCharge - billingRow.exportCredit, summary.tariff.currency) : "N/A");
+    appendAnalyticsCell(row, billingRow.chargeAvailable ? formatBillingCurrency(billingRow.energyCharge - billingRow.exportCredit, summary.tariff.currency) : "N/A");
     appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.afaCharge, summary.tariff.currency) : "N/A");
     appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.demandCharge, summary.tariff.currency) : "N/A");
     appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.taxAmount, summary.tariff.currency) : "N/A");
-    appendAnalyticsCell(row, billingRow.available ? formatBillingCurrency(billingRow.totalCharge, summary.tariff.currency) : "N/A", billingRow.available ? "billing-total-cell" : "");
+    appendAnalyticsCell(row, billingRow.chargeAvailable ? formatBillingCurrency(billingRow.totalCharge, summary.tariff.currency) : "N/A", billingRow.chargeAvailable ? "billing-total-cell" : "");
     billingTableBody.appendChild(row);
   });
 }
@@ -1303,15 +1312,33 @@ function renderConfigPage() {
 function normalizeBillingConfiguration(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    mode: source.mode === "manual" ? "manual" : "system",
+    tariffName: String(source.tariffName || "Custom tariff").trim() || "Custom tariff",
     currency: String(source.currency || "MYR").trim().toUpperCase() || "MYR",
-    energyRate: nonNegativeConfigNumber(source.energyRate),
+    useTou: source.useTou === true,
+    flatEnergyRate: nonNegativeConfigNumber(source.flatEnergyRate ?? source.energyRate),
+    peakEnergyRate: nonNegativeConfigNumber(source.peakEnergyRate),
+    offPeakEnergyRate: nonNegativeConfigNumber(source.offPeakEnergyRate),
     exportRate: nonNegativeConfigNumber(source.exportRate),
     demandRate: nonNegativeConfigNumber(source.demandRate),
     fixedCharge: nonNegativeConfigNumber(source.fixedCharge),
+    minimumCharge: nonNegativeConfigNumber(source.minimumCharge),
     taxPercent: nonNegativeConfigNumber(source.taxPercent),
     afaRateSen: finiteConfigNumber(source.afaRateSen),
+    peakStartTime: normalizeBillingTime(source.peakStartTime, "08:00"),
+    peakEndTime: normalizeBillingTime(source.peakEndTime, "22:00"),
+    peakDays: normalizeBillingPeakDays(source.peakDays),
   };
+}
+
+function normalizeBillingTime(value, fallback) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || "")) ? String(value) : fallback;
+}
+
+function normalizeBillingPeakDays(value) {
+  const days = Array.isArray(value)
+    ? [...new Set(value.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+    : [1, 2, 3, 4, 5];
+  return days.sort((left, right) => left - right);
 }
 
 function finiteConfigNumber(value) {
@@ -1330,97 +1357,28 @@ function getProjectBillingConfiguration(projectName) {
 }
 
 function renderBillingConfiguration() {
-  renderBillingSystemValues();
   const config = getProjectBillingConfiguration(state.configProjectName);
-  billingConfigModeSelect.value = config.mode;
+  billingConfigTariffNameInput.value = config.tariffName;
   billingConfigCurrencySelect.value = config.currency;
-  billingConfigEnergyRateInput.value = config.energyRate;
+  billingConfigUseTouSelect.value = String(config.useTou);
+  billingConfigEnergyRateInput.value = config.flatEnergyRate;
+  billingConfigPeakRateInput.value = config.peakEnergyRate;
+  billingConfigOffPeakRateInput.value = config.offPeakEnergyRate;
   billingConfigExportRateInput.value = config.exportRate;
   billingConfigDemandRateInput.value = config.demandRate;
   billingConfigFixedChargeInput.value = config.fixedCharge;
+  billingConfigMinimumChargeInput.value = config.minimumCharge;
   billingConfigTaxInput.value = config.taxPercent;
   billingConfigAfaRateInput.value = config.afaRateSen;
+  billingConfigPeakStartInput.value = config.peakStartTime;
+  billingConfigPeakEndInput.value = config.peakEndTime;
+  billingConfigPeakDays.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.checked = config.peakDays.includes(Number(checkbox.value));
+  });
   saveBillingConfigurationButton.disabled = !state.configProjectName;
-  renderBillingConfigurationForm();
-}
-
-function renderBillingConfigurationForm() {
-  const manual = billingConfigModeSelect.value === "manual";
-  billingManualFields.classList.toggle("hidden", !manual);
   billingConfigHint.textContent = !state.configProjectName
     ? "Select a project in Device Management before saving billing configuration."
-    : manual
-      ? "Reports for this project will start with these manual values. Users can still adjust the generated report session."
-      : "Reports will use the active billing-system flat tariff, supported demand rate, and current AFA when available.";
-}
-
-function renderBillingSystemValues() {
-  const system = state.billingSystem;
-  if (!system) {
-    billingSystemStatus.textContent = state.billingSystemError || "Billing system has not been checked.";
-    billingSystemStatus.classList.toggle("warning", Boolean(state.billingSystemError));
-    billingSystemSummary.innerHTML = "";
-    billingSystemTariffBody.innerHTML = '<tr class="empty-row"><td colspan="8">Refresh to load tariff rates.</td></tr>';
-    return;
-  }
-
-  billingSystemStatus.textContent = `Connected to billing service | Updated ${formatBillingTimestamp(system.loadedAt)}`;
-  billingSystemStatus.classList.remove("warning");
-  const active = system.activeTariff;
-  const afa = system.settings?.afa || {};
-  billingSystemSummary.innerHTML = `
-    <article><span>Active tariff</span><strong>${escapeHtml(active?.tariff || "Not set")}</strong></article>
-    <article><span>Billing mode</span><strong>${system.settings?.use_tou ? "Time of Use" : "Flat rate"}</strong></article>
-    <article><span>Current AFA</span><strong>${escapeHtml(formatBillingNumber(finiteConfigNumber(afa.rate), 4))} sen/kWh</strong></article>
-    <article><span>AFA period</span><strong>${escapeHtml(formatBillingMonth(afa.month, afa.year))}${afa.exact_match ? "" : " (fallback)"}</strong></article>
-  `;
-
-  billingSystemTariffBody.innerHTML = "";
-  if (!system.tariffs.length) {
-    billingSystemTariffBody.innerHTML = '<tr class="empty-row"><td colspan="8">No billing tariff rates were returned.</td></tr>';
-    return;
-  }
-  system.tariffs.forEach((tariff) => {
-    const row = document.createElement("tr");
-    if (tariff.is_active) row.classList.add("billing-active-tariff");
-    [
-      tariff.is_active ? "Active" : "Inactive",
-      tariff.tariff || "",
-      formatBillingNumber(finiteConfigNumber(tariff.peak_energy_rate), 4),
-      formatBillingNumber(finiteConfigNumber(tariff.offpeak_energy_rate), 4),
-      formatBillingNumber(finiteConfigNumber(tariff.flat_energy_rate), 4),
-      `${formatBillingNumber(finiteConfigNumber(tariff.capacity_charge_rate), 4)} ${tariff.capacity_charge_unit || "RM/kW"}`,
-      `${formatBillingNumber(finiteConfigNumber(tariff.network_charge_rate), 4)} ${tariff.network_charge_unit || "RM/kW"}`,
-      formatBillingCurrency(finiteConfigNumber(tariff.minimum_charge), "MYR"),
-    ].forEach((value) => appendAnalyticsCell(row, value));
-    billingSystemTariffBody.appendChild(row);
-  });
-}
-
-async function refreshBillingSystemValues() {
-  refreshBillingSystemButton.disabled = true;
-  billingSystemStatus.textContent = "Loading billing-system tariff and AFA values...";
-  billingSystemStatus.classList.remove("warning");
-  try {
-    const [tariffsPayload, settingsPayload] = await Promise.all([
-      requestJson("/billing-api/billing_tariff_rates"),
-      requestJson("/billing-api/billing_settings"),
-    ]);
-    const tariffs = Array.isArray(tariffsPayload) ? tariffsPayload : [];
-    const settings = settingsPayload && typeof settingsPayload === "object" ? settingsPayload : {};
-    const activeId = String(settings.active_tariff_rate_id ?? "");
-    const activeTariff = tariffs.find((tariff) => tariff?.is_active)
-      || tariffs.find((tariff) => String(tariff?.id ?? "") === activeId)
-      || null;
-    state.billingSystem = { tariffs, settings, activeTariff, loadedAt: new Date().toISOString() };
-    state.billingSystemError = "";
-  } catch (error) {
-    state.billingSystem = null;
-    state.billingSystemError = `Billing system unavailable. ${error.message}`;
-  } finally {
-    refreshBillingSystemButton.disabled = false;
-    renderBillingSystemValues();
-  }
+    : "Saved rates are applied to GridVis readings when a report is generated.";
 }
 
 async function saveBillingConfiguration() {
@@ -1429,14 +1387,22 @@ async function saveBillingConfiguration() {
     return;
   }
   const configuration = normalizeBillingConfiguration({
-    mode: billingConfigModeSelect.value,
+    tariffName: billingConfigTariffNameInput.value,
     currency: billingConfigCurrencySelect.value,
-    energyRate: billingConfigEnergyRateInput.value,
+    useTou: billingConfigUseTouSelect.value === "true",
+    flatEnergyRate: billingConfigEnergyRateInput.value,
+    peakEnergyRate: billingConfigPeakRateInput.value,
+    offPeakEnergyRate: billingConfigOffPeakRateInput.value,
     exportRate: billingConfigExportRateInput.value,
     demandRate: billingConfigDemandRateInput.value,
     fixedCharge: billingConfigFixedChargeInput.value,
+    minimumCharge: billingConfigMinimumChargeInput.value,
     taxPercent: billingConfigTaxInput.value,
     afaRateSen: billingConfigAfaRateInput.value,
+    peakStartTime: billingConfigPeakStartInput.value,
+    peakEndTime: billingConfigPeakEndInput.value,
+    peakDays: [...billingConfigPeakDays.querySelectorAll('input[type="checkbox"]:checked')]
+      .map((checkbox) => Number(checkbox.value)),
   });
   saveBillingConfigurationButton.disabled = true;
   try {
@@ -1452,18 +1418,6 @@ async function saveBillingConfiguration() {
   } finally {
     saveBillingConfigurationButton.disabled = !state.configProjectName;
   }
-}
-
-function formatBillingMonth(month, year) {
-  const safeMonth = Number(month);
-  const safeYear = Number(year);
-  if (!Number.isInteger(safeMonth) || safeMonth < 1 || safeMonth > 12 || !Number.isInteger(safeYear)) return "Unknown";
-  return new Intl.DateTimeFormat("en-MY", { month: "long", year: "numeric" }).format(new Date(safeYear, safeMonth - 1, 1));
-}
-
-function formatBillingTimestamp(value) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString("en-MY") : "now";
 }
 
 function normalizeSubstationName(value) {
@@ -4435,9 +4389,6 @@ async function onGenerateReport() {
     };
     state.activeResultTab = "data";
     if (filters.type !== "hist-events") {
-      if (getProjectBillingConfiguration(state.projectName).mode === "system" && !state.billingSystem) {
-        await refreshBillingSystemValues();
-      }
       applyEffectiveBillingTariffToInputs(state.projectName);
       renderBillingAnalytics();
     }
@@ -7651,6 +7602,8 @@ function buildBillingExportDatasets() {
     "Opening kWh",
     "Closing kWh",
     "Import kWh",
+    "Peak kWh",
+    "Off-peak kWh",
     "Export kWh",
     "Max Demand kW",
     "Average PF",
@@ -7670,10 +7623,16 @@ function buildBillingExportDatasets() {
       exportRole: "billing",
       columns: [
         "Currency",
-        "Import Rate / kWh",
+        "Rate Mode",
+        "Flat Rate / kWh",
+        "Peak Rate / kWh",
+        "Off-peak Rate / kWh",
+        "Peak Window",
+        "Peak Days",
         "Export Credit / kWh",
         "Demand Rate / kW",
         "Fixed Charge / Meter",
+        "Minimum Charge / Meter",
         "AFA Rate (sen/kWh)",
         "Tax (%)",
         "Rate Source",
@@ -7687,10 +7646,16 @@ function buildBillingExportDatasets() {
       rows: [
         {
           Currency: currency,
-          "Import Rate / kWh": summary.tariff.energyRate,
+          "Rate Mode": summary.tariff.useTou ? "Time of Use" : "Flat rate",
+          "Flat Rate / kWh": summary.tariff.energyRate,
+          "Peak Rate / kWh": summary.tariff.peakEnergyRate,
+          "Off-peak Rate / kWh": summary.tariff.offPeakEnergyRate,
+          "Peak Window": `${summary.tariff.peakStartTime}-${summary.tariff.peakEndTime}`,
+          "Peak Days": summary.tariff.peakDays.join(","),
           "Export Credit / kWh": summary.tariff.exportRate,
           "Demand Rate / kW": summary.tariff.demandRate,
           "Fixed Charge / Meter": summary.tariff.fixedCharge,
+          "Minimum Charge / Meter": summary.tariff.minimumCharge,
           "AFA Rate (sen/kWh)": summary.tariff.afaRate * 100,
           "Tax (%)": summary.tariff.taxPercent,
           "Rate Source": summary.tariff.sourceLabel,
@@ -7699,7 +7664,7 @@ function buildBillingExportDatasets() {
           "Exported kWh": summary.totalExportedKwh,
           "Peak Demand kW": summary.peakDemandKw,
           "Coverage (%)": summary.averageCoveragePercent,
-          "Estimated Total": summary.totalCharge,
+          "Estimated Total": Number.isFinite(summary.totalCharge) ? summary.totalCharge : "N/A",
         },
       ],
     },
@@ -7715,16 +7680,18 @@ function buildBillingExportDatasets() {
         "Opening kWh": row.openingKwh ?? "N/A",
         "Closing kWh": row.closingKwh ?? "N/A",
         "Import kWh": row.available ? row.importedKwh : "N/A",
+        "Peak kWh": row.chargeAvailable && summary.tariff.useTou ? row.peakImportedKwh : "N/A",
+        "Off-peak kWh": row.chargeAvailable && summary.tariff.useTou ? row.offPeakImportedKwh : "N/A",
         "Export kWh": row.available ? row.exportedKwh : "N/A",
         "Max Demand kW": row.available ? row.maxDemandKw : "N/A",
         "Average PF": row.averagePowerFactor ?? "N/A",
         "Coverage (%)": row.available ? row.coveragePercent : "N/A",
-        [`Energy Charge (${currency})`]: row.available ? row.energyCharge - row.exportCredit : "N/A",
+        [`Energy Charge (${currency})`]: row.chargeAvailable ? row.energyCharge - row.exportCredit : "N/A",
         [`AFA Charge (${currency})`]: row.available ? row.afaCharge : "N/A",
         [`Demand Charge (${currency})`]: row.available ? row.demandCharge : "N/A",
         [`Fixed Charge (${currency})`]: row.available ? row.fixedCharge : "N/A",
         [`Tax (${currency})`]: row.available ? row.taxAmount : "N/A",
-        [`Total (${currency})`]: row.available ? row.totalCharge : "N/A",
+        [`Total (${currency})`]: row.chargeAvailable ? row.totalCharge : "N/A",
       })),
     },
   ];
