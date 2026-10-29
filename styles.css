@@ -1371,6 +1371,23 @@ h1 {
   font-weight: 600;
 }
 
+.report-table tr.device-group-alt td {
+  background: #f4f8fa;
+}
+
+.report-table tr.device-group-start td {
+  border-top: 3px solid #8295a8;
+}
+
+.report-table tr.device-group-row td.device-group-label {
+  background: #edf3f5;
+  font-weight: 700;
+}
+
+.report-table tr.device-group-alt td.device-group-label {
+  background: #e3edef;
+}
+
 .report-table th.group-parent {
   text-align: center;
   background: #eef3fb;

@@ -6343,9 +6343,34 @@ function buildNominalRowsTable(deviceTables, metricColumns, includeDate = true) 
 
   const rowsOut = [];
   const cellClasses = {};
+  let previousDeviceGroupKey = "";
+  let deviceGroupIndex = -1;
   outputEntries.forEach((entry, index) => {
     rowsOut.push(entry.row);
-    cellClasses[index] = entry.cellClasses || {};
+    const entryCellClasses = { ...(entry.cellClasses || {}) };
+
+    if (includeDate) {
+      const deviceGroupKey = String(
+        entry.row?._analytics?.deviceId ||
+          `${entry.row?.Substation || ""}\u0000${entry.row?.Device || ""}`
+      );
+      const isDeviceGroupStart = deviceGroupKey !== previousDeviceGroupKey;
+      if (isDeviceGroupStart) {
+        deviceGroupIndex += 1;
+        previousDeviceGroupKey = deviceGroupKey;
+      }
+
+      entryCellClasses._row = [
+        entryCellClasses._row,
+        "device-group-row",
+        deviceGroupIndex % 2 === 1 ? "device-group-alt" : "",
+        isDeviceGroupStart && deviceGroupIndex > 0 ? "device-group-start" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+    }
+
+    cellClasses[index] = entryCellClasses;
   });
 
   return {
@@ -7619,6 +7644,9 @@ function renderTable(
       if (column === "Device" && tr.classList.contains("row-compliant")) {
         td.classList.add("device-compliant");
       }
+      if (column === "Device" && tr.classList.contains("device-group-row")) {
+        td.classList.add("device-group-label");
+      }
       tr.appendChild(td);
     });
     reportTableBody.appendChild(tr);
@@ -7713,6 +7741,18 @@ function buildRenderedTableDatasets() {
         .includes("row-compliant")
     ) {
       rowCellClasses.Device = appendCssClassName(rowCellClasses.Device, "device-compliant");
+    }
+    if (
+      String(rowCellClasses._row || "")
+        .split(/\s+/)
+        .includes("device-group-alt")
+    ) {
+      columns.forEach((column) => {
+        rowCellClasses[column] = appendCssClassName(
+          rowCellClasses[column],
+          "device-group-alt"
+        );
+      });
     }
     exportRow._cellClasses = rowCellClasses;
     return exportRow;
@@ -8052,9 +8092,19 @@ async function exportExcelWithStyles(datasets) {
         rowValues[column] = row[column] ?? "";
       });
       const excelRow = worksheet.addRow(rowValues);
+      const isDeviceGroupStart = String(row?._cellClasses?._row || "")
+        .split(/\s+/)
+        .includes("device-group-start");
       columns.forEach((column, columnIndex) => {
         const cell = excelRow.getCell(columnIndex + 1);
         applyExcelCellStyle(cell, row?._cellClasses?.[column]);
+        if (isDeviceGroupStart) {
+          cell.border = {
+            ...(cell.border || {}),
+            top: { style: "medium", color: { argb: "FF8295A8" } },
+            bottom: { style: "thin", color: { argb: "FFE3E8F1" } },
+          };
+        }
       });
     });
 
@@ -8233,6 +8283,13 @@ function getConditionalCellStyle(cssClassName) {
       pdfFill: [254, 226, 226],
       pdfText: [180, 35, 24],
       bold: true,
+    },
+    "device-group-alt": {
+      excelFill: "FFF4F8FA",
+      excelFont: "FF1F2937",
+      pdfFill: [244, 248, 250],
+      pdfText: [31, 41, 55],
+      bold: false,
     },
   };
 
@@ -8511,6 +8568,20 @@ function renderPdfDatasetSection(doc, dataset, startY, options = {}) {
         hookData.cell.styles.textColor = [91, 100, 114];
         hookData.cell.styles.fontStyle = "bold";
         return;
+      }
+
+      if (
+        String(rowData?._cellClasses?._row || "")
+          .split(/\s+/)
+          .includes("device-group-start")
+      ) {
+        hookData.cell.styles.lineColor = [130, 149, 168];
+        hookData.cell.styles.lineWidth = {
+          top: 0.8,
+          right: 0.25,
+          bottom: 0.25,
+          left: 0.25,
+        };
       }
 
       const columnName = columns[hookData.column.index];
