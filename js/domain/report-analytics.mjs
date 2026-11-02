@@ -124,6 +124,190 @@ export function buildParameterTrend(samples = []) {
   };
 }
 
+export function buildComplianceHeatmap(records = [], options = {}) {
+  const scopeKey = String(options?.scopeKey || "all").trim() || "all";
+  const maxDays = Math.max(1, Number.parseInt(options?.maxDays, 10) || 31);
+  const normalized = (Array.isArray(records) ? records : [])
+    .filter((record) => matchesScope(record, scopeKey))
+    .map((record) => ({ ...record, dateKey: normalizeDateKey(record?.capturedAt || record?.date) }))
+    .filter((record) => record.dateKey && String(record?.deviceId || "").trim());
+  const dates = Array.from(new Set(normalized.map((record) => record.dateKey)))
+    .sort()
+    .slice(-maxDays);
+  const dateSet = new Set(dates);
+  const devices = new Map();
+
+  normalized.forEach((record) => {
+    if (!dateSet.has(record.dateKey)) return;
+    const deviceId = String(record.deviceId).trim();
+    if (!devices.has(deviceId)) {
+      devices.set(deviceId, {
+        deviceId,
+        deviceName: String(record?.deviceName || deviceId),
+        groupName: String(record?.groupName || "Unassigned"),
+        statusesByDate: new Map(),
+      });
+    }
+    const device = devices.get(deviceId);
+    const statuses = device.statusesByDate.get(record.dateKey) || [];
+    statuses.push(getRowStatus(record));
+    device.statusesByDate.set(record.dateKey, statuses);
+  });
+
+  const rows = Array.from(devices.values())
+    .map((device) => ({
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      groupName: device.groupName,
+      statuses: dates.map((date) => combineStatuses(device.statusesByDate.get(date) || [])),
+    }))
+    .sort((left, right) => left.deviceName.localeCompare(right.deviceName, undefined, { numeric: true }));
+
+  return { dates, rows };
+}
+
+export function buildDeviceRankings(records = [], options = {}) {
+  const scopeKey = String(options?.scopeKey || "all").trim() || "all";
+  const devices = new Map();
+  (Array.isArray(records) ? records : [])
+    .filter((record) => matchesScope(record, scopeKey))
+    .forEach((record) => {
+      const deviceId = String(record?.deviceId || "").trim();
+      if (!deviceId) return;
+      if (!devices.has(deviceId)) {
+        devices.set(deviceId, {
+          deviceId,
+          deviceName: String(record?.deviceName || deviceId),
+          groupName: String(record?.groupName || "Unassigned"),
+          pass: 0,
+          warning: 0,
+          fail: 0,
+          unavailable: 0,
+        });
+      }
+      devices.get(deviceId)[getRowStatus(record)] += 1;
+    });
+
+  return Array.from(devices.values())
+    .map((device) => {
+      const evaluated = device.pass + device.warning + device.fail;
+      return {
+        ...device,
+        evaluated,
+        total: evaluated + device.unavailable,
+        complianceRate: evaluated
+          ? roundPercent(((device.pass + device.warning) / evaluated) * 100)
+          : null,
+        performanceScore: evaluated
+          ? roundPercent(((device.pass + device.warning * 0.5) / evaluated) * 100)
+          : null,
+      };
+    })
+    .sort(
+      (left, right) =>
+        (left.performanceScore ?? 101) - (right.performanceScore ?? 101) ||
+        right.fail - left.fail ||
+        left.deviceName.localeCompare(right.deviceName, undefined, { numeric: true })
+    );
+}
+
+export function buildPowerQualityTimeline(events = [], options = {}) {
+  const scopeKey = String(options?.scopeKey || "all").trim() || "all";
+  const maxDays = Math.max(1, Number.parseInt(options?.maxDays, 10) || 31);
+  const normalized = (Array.isArray(events) ? events : [])
+    .filter((event) => matchesScope(event, scopeKey))
+    .map((event) => ({
+      ...event,
+      dateKey: normalizeDateKey(event?.capturedAt || event?.date),
+      eventType: String(event?.eventType || "Other").trim() || "Other",
+    }))
+    .filter((event) => event.dateKey);
+  const suppliedDates = (Array.isArray(options?.dates) ? options.dates : [])
+    .map(normalizeDateKey)
+    .filter(Boolean);
+  const dates = Array.from(new Set([...suppliedDates, ...normalized.map((event) => event.dateKey)]))
+    .sort()
+    .slice(-maxDays);
+  const dateSet = new Set(dates);
+  const typeTotals = new Map();
+  const dayBuckets = new Map(dates.map((date) => [date, new Map()]));
+
+  normalized.forEach((event) => {
+    if (!dateSet.has(event.dateKey)) return;
+    const day = dayBuckets.get(event.dateKey);
+    day.set(event.eventType, (day.get(event.eventType) || 0) + 1);
+    typeTotals.set(event.eventType, (typeTotals.get(event.eventType) || 0) + 1);
+  });
+
+  const types = Array.from(typeTotals.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([type, count]) => ({ type, count }));
+  const days = dates.map((date) => {
+    const counts = Object.fromEntries(dayBuckets.get(date) || []);
+    return {
+      date,
+      counts,
+      total: Object.values(counts).reduce((sum, count) => sum + count, 0),
+    };
+  });
+
+  return {
+    types,
+    days,
+    total: days.reduce((sum, day) => sum + day.total, 0),
+    maxDailyTotal: Math.max(0, ...days.map((day) => day.total)),
+  };
+}
+
+export function buildHourlyLoadProfile(samples = []) {
+  const normalized = (Array.isArray(samples) ? samples : [])
+    .map(normalizeTrendSample)
+    .filter((sample) => sample.timestamp > 0 && Number.isFinite(sample.value))
+    .sort((left, right) => left.timestamp - right.timestamp);
+  const emptyHours = () => Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    average: null,
+    min: null,
+    max: null,
+    count: 0,
+    latest: null,
+    previous: null,
+  }));
+  if (!normalized.length) {
+    return { sampleCount: 0, latestDate: "", previousDate: "", hours: emptyHours() };
+  }
+
+  const latestTimestamp = normalized[normalized.length - 1].timestamp;
+  const latestDate = normalizeDateKey(new Date(latestTimestamp));
+  const previousDateObject = new Date(`${latestDate}T00:00:00`);
+  previousDateObject.setDate(previousDateObject.getDate() - 1);
+  const previousDate = normalizeDateKey(previousDateObject);
+  const allBuckets = Array.from({ length: 24 }, () => []);
+  const latestBuckets = Array.from({ length: 24 }, () => []);
+  const previousBuckets = Array.from({ length: 24 }, () => []);
+
+  normalized.forEach((sample) => {
+    const date = new Date(sample.timestamp);
+    const hour = date.getHours();
+    const dateKey = normalizeDateKey(date);
+    allBuckets[hour].push(sample.value);
+    if (dateKey === latestDate) latestBuckets[hour].push(sample.value);
+    if (dateKey === previousDate) previousBuckets[hour].push(sample.value);
+  });
+
+  return {
+    sampleCount: normalized.length,
+    latestDate,
+    previousDate,
+    hours: allBuckets.map((values, hour) => ({
+      hour,
+      ...summarizeValues(values),
+      latest: summarizeValues(latestBuckets[hour]).average,
+      previous: summarizeValues(previousBuckets[hour]).average,
+    })),
+  };
+}
+
 export function getRowStatus(record) {
   const statuses = Object.values(record?.metricStatuses || {}).map(normalizeStatus);
   if (statuses.includes("fail")) return "fail";
@@ -232,6 +416,25 @@ function normalizeTrendSample(sample) {
     timestamp: Number.isFinite(timestamp) ? timestamp : 0,
     value: Number.isFinite(value) ? value : Number.NaN,
   };
+}
+
+function normalizeDateKey(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const date = new Date(text.replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? "" : normalizeDateKey(date);
+}
+
+function combineStatuses(statuses) {
+  const normalized = statuses.map(normalizeStatus);
+  if (normalized.includes("fail")) return "fail";
+  if (normalized.includes("warning")) return "warning";
+  if (normalized.includes("pass")) return "pass";
+  return "unavailable";
 }
 
 function emptyAnnualPoints() {

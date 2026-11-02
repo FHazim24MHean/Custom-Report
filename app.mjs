@@ -10,7 +10,11 @@ import {
 import { fetchWithRetry, runTaskPool } from "/js/api/request-pool.mjs";
 import {
   buildAnalyticsSummary,
+  buildComplianceHeatmap,
+  buildDeviceRankings,
+  buildHourlyLoadProfile,
   buildParameterTrend,
+  buildPowerQualityTimeline,
   buildScopeKey,
   getAnalyticsScopeOptions,
 } from "/js/domain/report-analytics.mjs";
@@ -168,6 +172,16 @@ const analyticsMonthlyChartTitle = document.getElementById("analyticsMonthlyChar
 const analyticsMonthlyLegend = document.getElementById("analyticsMonthlyLegend");
 const analyticsMonthlyChart = document.getElementById("analyticsMonthlyChart");
 const analyticsTrendMessage = document.getElementById("analyticsTrendMessage");
+const analyticsComplianceHeatmap = document.getElementById("analyticsComplianceHeatmap");
+const analyticsHeatmapMessage = document.getElementById("analyticsHeatmapMessage");
+const analyticsDeviceRanking = document.getElementById("analyticsDeviceRanking");
+const analyticsPqLegend = document.getElementById("analyticsPqLegend");
+const analyticsPqTimeline = document.getElementById("analyticsPqTimeline");
+const analyticsPqMessage = document.getElementById("analyticsPqMessage");
+const analyticsLoadProfileTitle = document.getElementById("analyticsLoadProfileTitle");
+const analyticsLoadProfileLegend = document.getElementById("analyticsLoadProfileLegend");
+const analyticsLoadProfileChart = document.getElementById("analyticsLoadProfileChart");
+const analyticsLoadProfileMessage = document.getElementById("analyticsLoadProfileMessage");
 const analyticsGroupTableBody = document.getElementById("analyticsGroupTableBody");
 const analyticsMetricTableBody = document.getElementById("analyticsMetricTableBody");
 const billingContext = document.getElementById("billingContext");
@@ -878,6 +892,7 @@ function renderAnalyticsPage() {
   });
   renderAnalyticsKpis(summary);
   renderAnalyticsTrends();
+  renderAnalyticsOperationalViews(records, events);
   renderAnalyticsGroupTable(summary.groups);
   renderAnalyticsMetricTable(summary.metrics);
 }
@@ -1111,6 +1126,183 @@ function getAnalyticsTrendSamples(deviceTable, metric) {
     .filter((sample) => sample.capturedAt && Number.isFinite(sample.value));
 }
 
+function renderAnalyticsOperationalViews(records, events) {
+  const heatmap = buildComplianceHeatmap(records, {
+    scopeKey: state.analyticsScopeKey,
+    maxDays: 31,
+  });
+  renderAnalyticsComplianceHeatmap(heatmap);
+  renderAnalyticsDeviceRanking(
+    buildDeviceRankings(records, { scopeKey: state.analyticsScopeKey })
+  );
+  renderAnalyticsPowerQualityTimeline(
+    buildPowerQualityTimeline(events, {
+      scopeKey: state.analyticsScopeKey,
+      dates: heatmap.dates,
+      maxDays: 31,
+    })
+  );
+  renderAnalyticsLoadProfile();
+}
+
+function renderAnalyticsComplianceHeatmap(heatmap) {
+  const dates = Array.isArray(heatmap?.dates) ? heatmap.dates : [];
+  const rows = Array.isArray(heatmap?.rows) ? heatmap.rows : [];
+  if (!dates.length || !rows.length) {
+    analyticsComplianceHeatmap.innerHTML = '<div class="analytics-compact-empty">No dated compliance rows are available in this scope.</div>';
+    analyticsHeatmapMessage.textContent = "Generate a multi-day historical values report to populate the heatmap.";
+    return;
+  }
+
+  const dateHeaders = dates.map((date) => {
+    const parsed = new Date(`${date}T00:00:00`);
+    const shortLabel = new Intl.DateTimeFormat("en-MY", { day: "2-digit", month: "short" }).format(parsed);
+    return `<th title="${escapeHtml(date)}"><span>${escapeHtml(shortLabel)}</span></th>`;
+  }).join("");
+  const body = rows.map((row) => {
+    const cells = row.statuses.map((status, index) => `
+      <td>
+        <span class="analytics-heatmap-cell ${escapeHtml(status)}" title="${escapeHtml(`${row.deviceName} | ${dates[index]} | ${status}`)}">
+          <span class="sr-only">${escapeHtml(status)}</span>
+        </span>
+      </td>
+    `).join("");
+    return `
+      <tr>
+        <th scope="row"><strong>${escapeHtml(row.deviceName)}</strong><span>${escapeHtml(row.groupName)}</span></th>
+        ${cells}
+      </tr>
+    `;
+  }).join("");
+
+  analyticsComplianceHeatmap.innerHTML = `
+    <table class="analytics-heatmap-table">
+      <thead><tr><th>Device</th>${dateHeaders}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+  analyticsHeatmapMessage.textContent = `${rows.length} device(s) across ${dates.length} available day(s). Red overrides amber and green when multiple readings share a day.`;
+}
+
+function renderAnalyticsDeviceRanking(rankings) {
+  const safeRankings = Array.isArray(rankings) ? rankings.slice(0, 12) : [];
+  if (!safeRankings.length) {
+    analyticsDeviceRanking.innerHTML = '<div class="analytics-compact-empty">No ranked devices are available in this scope.</div>';
+    return;
+  }
+
+  analyticsDeviceRanking.innerHTML = safeRankings.map((device, index) => {
+    const rate = Number.isFinite(device.performanceScore) ? device.performanceScore : 0;
+    const rateLabel = Number.isFinite(device.performanceScore)
+      ? `${device.performanceScore.toFixed(1)}%`
+      : "N/A";
+    const severityClass = device.fail > 0 ? "fail" : device.warning > 0 ? "warning" : "pass";
+    return `
+      <article class="analytics-ranking-row ${severityClass}">
+        <span class="analytics-ranking-index">${index + 1}</span>
+        <div class="analytics-ranking-main">
+          <div class="analytics-ranking-label">
+            <span><strong>${escapeHtml(device.deviceName)}</strong><small>${escapeHtml(device.groupName)}</small></span>
+            <strong title="Weighted health score">${escapeHtml(rateLabel)}</strong>
+          </div>
+          <div class="analytics-ranking-track"><span style="width:${Math.max(0, Math.min(100, rate))}%"></span></div>
+          <span class="analytics-ranking-note">${device.fail} failed, ${device.warning} warning, ${device.evaluated} evaluated</span>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderAnalyticsPowerQualityTimeline(timeline) {
+  const palette = ["#0f766e", "#d97706", "#b42318", "#2563eb", "#7c3aed", "#64748b"];
+  const types = Array.isArray(timeline?.types) ? timeline.types : [];
+  const days = Array.isArray(timeline?.days) ? timeline.days : [];
+  analyticsPqLegend.innerHTML = types.map((entry, index) => `
+    <span><i style="background:${palette[index % palette.length]}"></i>${escapeHtml(entry.type)} (${entry.count})</span>
+  `).join("");
+
+  if (!timeline?.total || !days.length) {
+    analyticsPqTimeline.innerHTML = '<div class="analytics-compact-empty">No power-quality events were recorded in this scope.</div>';
+    analyticsPqMessage.textContent = days.length
+      ? `${days.length} report day(s) checked with no recorded events.`
+      : "Generate a multi-day report to populate the event timeline.";
+    return;
+  }
+
+  const maxTotal = Math.max(1, timeline.maxDailyTotal || 1);
+  analyticsPqTimeline.innerHTML = `
+    <div class="analytics-pq-days" style="--timeline-days:${days.length}">
+      ${days.map((day) => {
+        const segments = types.map((entry, index) => {
+          const count = Number(day.counts?.[entry.type] || 0);
+          if (!count) return "";
+          return `<span style="height:${(count / day.total) * 100}%;background:${palette[index % palette.length]}" title="${escapeHtml(`${entry.type}: ${count}`)}"></span>`;
+        }).join("");
+        const dateLabel = new Intl.DateTimeFormat("en-MY", { day: "2-digit", month: "short" })
+          .format(new Date(`${day.date}T00:00:00`));
+        return `
+          <div class="analytics-pq-day" title="${escapeHtml(`${day.date}: ${day.total} event(s)`)}">
+            <strong>${day.total || ""}</strong>
+            <div class="analytics-pq-bar" style="height:${Math.max(day.total ? 8 : 0, (day.total / maxTotal) * 126)}px">${segments}</div>
+            <span>${escapeHtml(dateLabel)}</span>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+  analyticsPqMessage.textContent = `${timeline.total} event(s) across ${days.filter((day) => day.total > 0).length} affected day(s).`;
+}
+
+function renderAnalyticsLoadProfile() {
+  const deviceTables = getAnalyticsTrendDeviceTables();
+  const selectedTable = deviceTables.find(
+    (table) => String(table?.deviceId || "") === state.analyticsDeviceId
+  );
+  const loadMetric = ANALYTICS_TREND_METRICS.find((metric) => metric.key === "LOAD_PERCENT");
+  const profile = buildHourlyLoadProfile(getAnalyticsTrendSamples(selectedTable, loadMetric));
+  analyticsLoadProfileTitle.textContent = selectedTable
+    ? `${selectedTable.label || getDeviceDisplayName(selectedTable.deviceId)} | Load by hour`
+    : "Select a device with load data";
+
+  if (!selectedTable || !profile.sampleCount) {
+    analyticsLoadProfileLegend.innerHTML = "";
+    renderAnalyticsChartEmpty(analyticsLoadProfileChart, "No load samples are available for the selected device.");
+    analyticsLoadProfileMessage.textContent = "The profile uses LOAD_PERCENT readings retained in the generated report.";
+    return;
+  }
+
+  const xLabels = profile.hours.map((entry) => String(entry.hour).padStart(2, "0"));
+  const averageValues = profile.hours.map((entry) => entry.average);
+  const latestValues = profile.hours.map((entry) => entry.latest);
+  const previousValues = profile.hours.map((entry) => entry.previous);
+  const ranges = profile.hours.map((entry) => ({ min: entry.min, max: entry.max }));
+  const hasLatest = latestValues.some(Number.isFinite);
+  const hasPrevious = previousValues.some(Number.isFinite);
+  const series = [{ label: "Range average", color: "#0f766e", values: averageValues }];
+  if (hasLatest) series.push({ label: profile.latestDate, color: "#1d4ed8", values: latestValues });
+  if (hasPrevious) series.push({ label: profile.previousDate, color: "#d97706", values: previousValues });
+
+  analyticsLoadProfileLegend.innerHTML = `
+    <span><i class="analytics-line-key"></i>Range average</span>
+    ${hasLatest ? `<span><i class="analytics-line-key latest"></i>${escapeHtml(profile.latestDate)}</span>` : ""}
+    ${hasPrevious ? `<span><i class="analytics-line-key previous"></i>${escapeHtml(profile.previousDate)}</span>` : ""}
+  `;
+  renderAnalyticsLineChart(analyticsLoadProfileChart, {
+    ariaLabel: `24-hour load profile for ${selectedTable.label || selectedTable.deviceId}`,
+    xLabels,
+    series,
+    ranges,
+    decimals: 1,
+    unit: "%",
+    compactHourLabels: true,
+  });
+
+  const populatedHours = profile.hours.filter((entry) => entry.count > 0).length;
+  analyticsLoadProfileMessage.textContent = populatedHours > 1
+    ? `${profile.sampleCount} load reading(s) distributed across ${populatedHours} hour(s); whiskers show the generated-range minimum and maximum.`
+    : `${profile.sampleCount} load reading(s), but only ${populatedHours} hour is represented. Configure a sub-daily GridVis timebase for a complete 24-hour profile.`;
+}
+
 function renderAnalyticsChartEmpty(container, message) {
   container.innerHTML = `<div class="analytics-chart-empty">${escapeHtml(message)}</div>`;
 }
@@ -1152,9 +1344,10 @@ function renderAnalyticsLineChart(container, options) {
     grid.push(`<text x="${margin.left - 10}" y="${y + 4}" text-anchor="end" class="analytics-chart-axis-label">${escapeHtml(formatValue(value))}</text>`);
   }
 
-  const labelStep = options?.compactDayLabels ? 5 : 1;
+  const labelStep = options?.compactDayLabels ? 5 : options?.compactHourLabels ? 3 : 1;
   const xAxisLabels = xLabels.map((label, index) => {
-    const show = !options?.compactDayLabels || index === 0 || index === xLabels.length - 1 || (index + 1) % labelStep === 0;
+    const compactLabels = options?.compactDayLabels || options?.compactHourLabels;
+    const show = !compactLabels || index === 0 || index === xLabels.length - 1 || index % labelStep === 0;
     return show
       ? `<text x="${xAt(index)}" y="${height - 14}" text-anchor="middle" class="analytics-chart-axis-label">${escapeHtml(label)}</text>`
       : "";
@@ -1216,7 +1409,12 @@ function appendAnalyticsRateCell(row, rate) {
 
 function getLatestAnalyticsRecords() {
   return [...state.latestReportRows, ...state.latestMainIntakeRows]
-    .map((row) => row?._analytics || null)
+    .map((row) => row?._analytics
+      ? {
+          ...row._analytics,
+          capturedAt: row?.Date || row?._capturedAt || state.reportSession?.generatedAt || "",
+        }
+      : null)
     .filter(Boolean);
 }
 
@@ -1226,8 +1424,13 @@ function getLatestAnalyticsEvents() {
     const isMainIntake = isDeviceAssignedToMainIntake(deviceId);
     return {
       deviceId,
+      deviceName: String(row?.Device || getDeviceDisplayName(deviceId)),
       groupType: isMainIntake ? "main-intake" : "substation",
       groupName: String(row?.Category || "Unassigned"),
+      capturedAt: [row?.Date, row?.["Start Time"]].filter(Boolean).join(" "),
+      eventType: String(row?.["Event Type"] || "Other"),
+      durationMs: parseNumericValue(row?.["Duration (ms)"]),
+      phase: String(row?.Phase || ""),
     };
   });
 }

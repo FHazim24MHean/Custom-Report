@@ -215,6 +215,61 @@
             <p id="analyticsTrendMessage" class="analytics-trend-message"></p>
           </section>
 
+          <section class="analytics-panel analytics-heatmap-panel">
+            <div class="analytics-panel-heading">
+              <div>
+                <p class="analytics-eyebrow">Daily status map</p>
+                <h3>Compliance Heatmap</h3>
+              </div>
+              <div class="analytics-status-legend" aria-label="Compliance heatmap legend">
+                <span><i class="pass"></i>Pass</span>
+                <span><i class="warning"></i>Warning</span>
+                <span><i class="fail"></i>Failed</span>
+                <span><i class="unavailable"></i>No data</span>
+              </div>
+            </div>
+            <div id="analyticsComplianceHeatmap" class="analytics-heatmap-wrap"></div>
+            <p id="analyticsHeatmapMessage" class="analytics-trend-message"></p>
+          </section>
+
+          <div class="analytics-insight-grid">
+            <section class="analytics-panel analytics-ranking-panel">
+              <div class="analytics-panel-heading">
+                <div>
+                  <p class="analytics-eyebrow">Attention priority</p>
+                  <h3>Worst Performing Devices</h3>
+                </div>
+                <span class="analytics-legend">Health score: pass 100, warning 50, fail 0</span>
+              </div>
+              <div id="analyticsDeviceRanking" class="analytics-ranking-list"></div>
+            </section>
+
+            <section class="analytics-panel analytics-pq-panel">
+              <div class="analytics-panel-heading">
+                <div>
+                  <p class="analytics-eyebrow">Event distribution</p>
+                  <h3>Power Quality Timeline</h3>
+                </div>
+              </div>
+              <div id="analyticsPqLegend" class="analytics-pq-legend"></div>
+              <div id="analyticsPqTimeline" class="analytics-pq-timeline"></div>
+              <p id="analyticsPqMessage" class="analytics-trend-message"></p>
+            </section>
+          </div>
+
+          <section class="analytics-panel analytics-load-panel">
+            <div class="analytics-panel-heading">
+              <div>
+                <p class="analytics-eyebrow">Operational loading pattern</p>
+                <h3>24-Hour Load Profile</h3>
+                <strong id="analyticsLoadProfileTitle" class="analytics-subtitle">Selected device load by hour</strong>
+              </div>
+              <div id="analyticsLoadProfileLegend" class="analytics-chart-legend"></div>
+            </div>
+            <div id="analyticsLoadProfileChart" class="analytics-chart analytics-load-chart" aria-live="polite"></div>
+            <p id="analyticsLoadProfileMessage" class="analytics-trend-message"></p>
+          </section>
+
           <section class="analytics-panel">
             <div class="analytics-panel-heading">
               <div>
