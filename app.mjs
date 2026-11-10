@@ -19,6 +19,7 @@ import {
   getAnalyticsScopeOptions,
 } from "/js/domain/report-analytics.mjs";
 import { buildBillingAnalytics } from "/js/domain/billing-analytics.mjs";
+import { filterColumnGroups, getColumnsWithData } from "/js/domain/table-columns.mjs";
 
 import {
   API_CONFIG,
@@ -6393,8 +6394,9 @@ function renderMainIntakeReportTable(rows = null) {
 
   const safeRows =
     rows === null ? buildMainIntakeReportRows(state.projectName) : Array.isArray(rows) ? rows : [];
+  const columns = getColumnsWithData(MAIN_INTAKE_REPORT_COLUMNS, safeRows);
   state.latestMainIntakeRows = safeRows;
-  state.latestMainIntakeColumns = [...MAIN_INTAKE_REPORT_COLUMNS];
+  state.latestMainIntakeColumns = columns;
   mainIntakeReportTableHead.innerHTML = "";
   mainIntakeReportTableBody.innerHTML = "";
 
@@ -6404,7 +6406,6 @@ function renderMainIntakeReportTable(rows = null) {
   }
 
   mainIntakeReportSection.classList.remove("hidden");
-  const columns = MAIN_INTAKE_REPORT_COLUMNS;
   const standardRow = getTableStandardRow(columns);
   const mergedCellSpanMap = {
     "Main Intake": {},
@@ -6469,7 +6470,10 @@ function renderPowerQualityReportTable(rows = null) {
   }
 
   const safeRows = Array.isArray(rows) ? rows : [];
-  const columns = getPowerQualityReportColumns(shouldIncludeDateColumn());
+  const columns = getColumnsWithData(
+    getPowerQualityReportColumns(shouldIncludeDateColumn()),
+    safeRows
+  );
   const mergedCellSpanMap = buildMergedCellSpanMapByColumn(safeRows, "Category");
   state.latestPowerQualityRows = safeRows;
   state.latestPowerQualityColumns = columns;
@@ -7775,9 +7779,15 @@ function renderTable(
 ) {
   reportTableHead.innerHTML = "";
   reportTableBody.innerHTML = "";
+  const candidateColumns = columnsOverride || (rows.length ? Object.keys(rows[0]) : []);
+  const visibleColumns = getColumnsWithData(candidateColumns, rows);
   state.latestReportRows = rows;
-  state.latestReportColumns = columnsOverride || (rows.length ? Object.keys(rows[0]) : []);
-  state.latestColumnGroups = columnGroupsOverride || [];
+  state.latestReportColumns = visibleColumns;
+  state.latestColumnGroups = filterColumnGroups(
+    columnGroupsOverride || [],
+    candidateColumns,
+    visibleColumns
+  );
   state.latestCellClasses = cellClassesOverride || {};
   updateExportAvailability();
 
