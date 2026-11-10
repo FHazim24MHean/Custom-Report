@@ -146,6 +146,8 @@ Direct query links remain supported:
 http://REPORT-SERVER:8081/?project=PROJECT&group=SS12&groupType=substation&side=HT&range=today&autorun=1
 ```
 
+When authentication is enabled, opening either link without an active session redirects to the login page. After a successful login, the browser returns to the original report link with its filters intact.
+
 ## Health Checks
 
 Basic process health:
