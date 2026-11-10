@@ -141,6 +141,20 @@ export const EXTRA_NOMINAL_METRIC_DEFINITIONS = [
     unitValue: "Wh",
     unitLabel: "Exported Active Energy",
   },
+  {
+    key: "TX_TEMPERATURE",
+    column: "TX Temperature",
+    unitColumn: "TxTemperatureUnit",
+    unitValue: "degC",
+    unitLabel: "TX Temperature",
+  },
+  {
+    key: "TX_PRESSURE",
+    column: "TX Pressure",
+    unitColumn: "TxPressureUnit",
+    unitValue: "bar",
+    unitLabel: "TX Pressure",
+  },
 ];
 
 export const HIDDEN_NOMINAL_METRIC_KEYS = [
@@ -159,6 +173,12 @@ export const HIDDEN_NOMINAL_METRIC_KEYS = [
   "ACTIVE_ENERGY_SUPPLIED",
   "ACTIVE_ENERGY_SUPPLIED_Min",
   "ACTIVE_ENERGY_SUPPLIED_Max",
+  "TX_TEMPERATURE",
+  "TX_TEMPERATURE_Min",
+  "TX_TEMPERATURE_Max",
+  "TX_PRESSURE",
+  "TX_PRESSURE_Min",
+  "TX_PRESSURE_Max",
 ];
 
 export const CAPABILITY_TYPE_PREFERENCES = {

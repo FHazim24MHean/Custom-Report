@@ -20,6 +20,7 @@ import {
 } from "/js/domain/report-analytics.mjs";
 import { buildBillingAnalytics } from "/js/domain/billing-analytics.mjs";
 import { filterColumnGroups, getColumnsWithData } from "/js/domain/table-columns.mjs";
+import { buildUserDefinedReportRequestSpecs } from "/js/domain/value-description-aliases.mjs";
 
 import {
   API_CONFIG,
@@ -2325,8 +2326,18 @@ function buildMainIntakeReportRows(projectName) {
       "LV Current Unbalance": formatMainIntakeMetricPercent(latestMetrics?.A_UNBALANCE),
       "TX Voltage Ratio": formatMainIntakeMetricNumber(latestMetrics?.TRANSFORMATION_RATIO, 3),
       "TX Oil Pressure": NON_POWER_DATA_PLACEHOLDER,
-      "TX Temperature": NON_POWER_DATA_PLACEHOLDER,
-      "TX Pressure": NON_POWER_DATA_PLACEHOLDER,
+      "TX Temperature": formatMappedReportMetric(
+        latestMetrics,
+        "TX_TEMPERATURE",
+        "TxTemperatureUnit",
+        "degC"
+      ),
+      "TX Pressure": formatMappedReportMetric(
+        latestMetrics,
+        "TX_PRESSURE",
+        "TxPressureUnit",
+        "bar"
+      ),
     });
   });
 
@@ -5567,6 +5578,8 @@ function buildNominalRequestSpecsForDevice(valueDescriptions, options = {}) {
     });
   }
 
+  requestSpecs.push(...buildUserDefinedReportRequestSpecs(safeDescriptions));
+
   if (!safeDescriptions.length && fallbackToLegacyExtraMetrics) {
     EXTRA_NOMINAL_METRIC_DEFINITIONS
       .filter((definition) =>
@@ -6919,8 +6932,18 @@ function buildNominalDeviceComplianceRow(
         { showValueWhenCompliant: true }
       ),
       "TX Oil Pressure": NON_POWER_DATA_PLACEHOLDER,
-      "TX Temperature": NON_POWER_DATA_PLACEHOLDER,
-      "TX Pressure": NON_POWER_DATA_PLACEHOLDER,
+      "TX Temperature": formatMappedReportMetric(
+        ratioRow,
+        "TX_TEMPERATURE",
+        "TxTemperatureUnit",
+        "degC"
+      ),
+      "TX Pressure": formatMappedReportMetric(
+        ratioRow,
+        "TX_PRESSURE",
+        "TxPressureUnit",
+        "bar"
+      ),
     },
     cellClasses: {
       "LV Voltage": getComplianceStatusClass(lvVoltageCompliance),
@@ -7290,6 +7313,15 @@ function formatMainIntakeMetricTemperature(value) {
     return "N/A";
   }
   return `${numericValue.toFixed(2)}degC`;
+}
+
+function formatMappedReportMetric(row, metricKey, unitColumn, fallbackUnit = "") {
+  const value = row?.[metricKey];
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return NON_POWER_DATA_PLACEHOLDER;
+  }
+  const unit = String(row?.[unitColumn] || fallbackUnit).trim();
+  return formatValueWithUnit(roundTo2Decimals(value), unit);
 }
 
 function getDateKey(value) {

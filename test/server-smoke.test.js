@@ -31,6 +31,7 @@ test("serves health, browser modules, and project configuration", async (t) => {
   assert.equal((await fetch(`${origin}/js/domain/report-analytics.mjs`)).status, 200);
   assert.equal((await fetch(`${origin}/js/domain/billing-analytics.mjs`)).status, 200);
   assert.equal((await fetch(`${origin}/js/domain/table-columns.mjs`)).status, 200);
+  assert.equal((await fetch(`${origin}/js/domain/value-description-aliases.mjs`)).status, 200);
 
   assert.equal((await fetch(`${origin}/app.mjs`)).status, 200);
   assert.equal((await fetch(`${origin}/vendor/exceljs.min.js`)).status, 200);
