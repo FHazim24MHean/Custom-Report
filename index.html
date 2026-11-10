@@ -103,6 +103,23 @@
 
     <section class="status-area">
       <p id="statusMessage" class="status-message"></p>
+      <div id="reportProgress" class="report-progress hidden" role="status" aria-live="polite">
+        <div class="report-progress-heading">
+          <span id="reportProgressLabel">Preparing report</span>
+          <strong id="reportProgressValue">0%</strong>
+        </div>
+        <div
+          id="reportProgressBar"
+          class="report-progress-track"
+          role="progressbar"
+          aria-label="Report generation progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0">
+          <span id="reportProgressFill" class="report-progress-fill"></span>
+        </div>
+        <span id="reportProgressDetail" class="report-progress-detail"></span>
+      </div>
     </section>
 
     <section id="reportResultsEmpty" class="report-results-empty">

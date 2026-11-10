@@ -121,6 +121,7 @@ const state = {
   editingReportLinkSlug: "",
   reportLinkSlugEdited: false,
   reportAbortController: null,
+  reportProgressHideTimer: null,
 };
 
 const projectSelect = document.getElementById("projectSelect");
@@ -147,6 +148,12 @@ const powerQualityReportTableHead = document.querySelector("#powerQualityReportT
 const powerQualityReportTableBody = document.querySelector("#powerQualityReportTable tbody");
 const deviceTabs = document.getElementById("deviceTabs");
 const statusMessage = document.getElementById("statusMessage");
+const reportProgress = document.getElementById("reportProgress");
+const reportProgressLabel = document.getElementById("reportProgressLabel");
+const reportProgressValue = document.getElementById("reportProgressValue");
+const reportProgressBar = document.getElementById("reportProgressBar");
+const reportProgressFill = document.getElementById("reportProgressFill");
+const reportProgressDetail = document.getElementById("reportProgressDetail");
 const showReportPageButton = document.getElementById("showReportPageButton");
 const showConfigPageButton = document.getElementById("showConfigPageButton");
 const reportPage = document.getElementById("reportPage");
@@ -4785,6 +4792,8 @@ async function onGenerateReport() {
   state.latestBillingSummary = null;
   state.latestBillingRows = [];
   renderResultWorkspace();
+  beginReportProgress();
+  setReportLoadingState(true);
   setStatus("Generating report...");
   try {
     const filters = {
@@ -4795,7 +4804,17 @@ async function onGenerateReport() {
       signal: reportAbortController.signal,
     };
 
-    const readings = await fetchReportRows(state.projectName, [...state.selectedDeviceIds], filters);
+    const selectedDeviceIds = [...state.selectedDeviceIds];
+    const includesPowerQualityStage = filters.type !== "hist-events";
+    const readings = await fetchReportRows(state.projectName, selectedDeviceIds, {
+      ...filters,
+      onProgress: createReportFetchProgressHandler({
+        start: 3,
+        end: includesPowerQualityStage ? 72 : 94,
+        label: filters.type === "hist-events" ? "Loading event history" : "Loading meter readings",
+        discoveryExpected: filters.type !== "hist-events",
+      }),
+    });
     const nominalApiUrls = [...state.latestApiUrls];
     let powerQualityRows = [];
     let powerQualityFetchError = null;
@@ -4804,10 +4823,16 @@ async function onGenerateReport() {
       try {
         const powerQualityReadings = await fetchReportRows(
           state.projectName,
-          [...state.selectedDeviceIds],
+          selectedDeviceIds,
           {
             ...filters,
             type: "hist-events",
+            onProgress: createReportFetchProgressHandler({
+              start: 72,
+              end: 94,
+              label: "Loading power-quality events",
+              discoveryExpected: false,
+            }),
           }
         );
         const powerQualityApiUrls = [...state.latestApiUrls];
@@ -4824,7 +4849,8 @@ async function onGenerateReport() {
       state.latestApiUrls = nominalApiUrls;
     }
 
-    const table = buildDeviceMetricsTable(readings, [...state.selectedDeviceIds]);
+    updateReportProgress(96, "Building report", "Calculating compliance and formatting tables");
+    const table = buildDeviceMetricsTable(readings, selectedDeviceIds);
     renderDeviceTables(table.deviceTables, table.columns, table.columnGroups);
     renderMainIntakeReportTable(filters.type === "hist-events" ? [] : null);
     renderPowerQualityReportTable(filters.type === "hist-events" ? [] : powerQualityRows);
@@ -4836,7 +4862,7 @@ async function onGenerateReport() {
       rangeLabel: getSelectedRangeLabel(),
       startDate: filters.startDate || "",
       endDate: filters.endDate || "",
-      deviceIds: [...state.selectedDeviceIds],
+      deviceIds: selectedDeviceIds,
       generatedAt: new Date().toISOString(),
     };
     state.activeResultTab = "data";
@@ -4858,9 +4884,13 @@ async function onGenerateReport() {
     setStatus(
       `Report generated. Devices: ${table.deviceCount} | Readings: ${table.readingCount}${powerQualityHint}${urlHint}`
     );
+    completeReportProgress(
+      `${table.deviceCount} device(s), ${table.readingCount} reading(s) processed`
+    );
   } catch (error) {
     if (error?.name === "AbortError") {
       setStatus("Report generation cancelled.");
+      failReportProgress("Report generation cancelled");
       return;
     }
     renderDeviceTables([]);
@@ -4872,7 +4902,9 @@ async function onGenerateReport() {
     renderResultWorkspace();
     const urlHint = state.latestApiUrls[0] ? ` | URL: ${state.latestApiUrls[0]}` : "";
     setStatus(`Report request failed. ${error.message}${urlHint}`, true);
+    failReportProgress("Report generation failed");
   } finally {
+    setReportLoadingState(false);
     if (state.reportAbortController === reportAbortController) {
       state.reportAbortController = null;
     }
@@ -4884,7 +4916,9 @@ async function fetchReportRows(projectName, deviceIds, filters) {
   state.latestApiUrls = [];
 
   if (isDemoProjectName(projectName)) {
-    return buildDemoReadings(deviceIds, filters);
+    const demoReadings = buildDemoReadings(deviceIds, filters);
+    filters.onProgress?.({ phase: "data", completed: 1, total: 1 });
+    return demoReadings;
   }
 
   const requests = [];
@@ -4906,7 +4940,11 @@ async function fetchReportRows(projectName, deviceIds, filters) {
     const valueDescriptionsByDevice = await fetchDeviceValueDescriptionsForDevices(
       projectName,
       deviceIds,
-      { signal: filters.signal }
+      {
+        signal: filters.signal,
+        onProgress: ({ completed, total }) =>
+          filters.onProgress?.({ phase: "descriptions", completed, total }),
+      }
     );
     deviceIds.forEach((deviceId, deviceIndex) => {
       const requestSpecs = buildNominalRequestSpecsForDevice(
@@ -4962,7 +5000,10 @@ async function fetchReportRows(projectName, deviceIds, filters) {
   const settled = await runTaskPool(requests, {
     concurrency: 8,
     signal: filters.signal,
-    onProgress: ({ completed, total }) => setStatus(`Loading report data: ${completed}/${total}`),
+    onProgress: ({ completed, total }) => {
+      setStatus(`Loading report data: ${completed}/${total}`);
+      filters.onProgress?.({ phase: "data", completed, total });
+    },
   });
   const fulfilled = settled.filter((item) => item.status === "fulfilled");
   if (!fulfilled.length) {
@@ -5354,7 +5395,11 @@ async function fetchDeviceValueDescriptionsForDevices(projectName, deviceIds, op
         output.set(deviceId, []);
       }
     });
-  await runTaskPool(tasks, { concurrency: 6, signal: options.signal });
+  await runTaskPool(tasks, {
+    concurrency: 6,
+    signal: options.signal,
+    onProgress: options.onProgress,
+  });
 
   return output;
 }
@@ -8926,4 +8971,79 @@ function downloadBlob(content, mimeType, filename) {
 function setStatus(message, isError = false) {
   statusMessage.textContent = message;
   statusMessage.classList.toggle("error", isError);
+}
+
+function beginReportProgress() {
+  if (state.reportProgressHideTimer) {
+    clearTimeout(state.reportProgressHideTimer);
+    state.reportProgressHideTimer = null;
+  }
+  reportProgress.classList.remove("hidden", "complete", "error");
+  updateReportProgress(1, "Preparing report", "Creating API request plan");
+}
+
+function createReportFetchProgressHandler({ start, end, label, discoveryExpected }) {
+  const safeStart = Math.max(0, Math.min(100, Number(start) || 0));
+  const safeEnd = Math.max(safeStart, Math.min(100, Number(end) || safeStart));
+  const span = safeEnd - safeStart;
+  return ({ phase, completed, total }) => {
+    const safeTotal = Math.max(1, Number(total) || 1);
+    const ratio = Math.max(0, Math.min(1, (Number(completed) || 0) / safeTotal));
+    let stageRatio = ratio;
+    let detailLabel = label;
+    if (discoveryExpected && phase === "descriptions") {
+      stageRatio = ratio * 0.16;
+      detailLabel = "Discovering available meter values";
+    } else if (discoveryExpected && phase === "data") {
+      stageRatio = 0.16 + ratio * 0.84;
+    }
+    updateReportProgress(
+      safeStart + span * stageRatio,
+      detailLabel,
+      `${Math.min(Number(completed) || 0, safeTotal)} of ${safeTotal} request(s) completed`
+    );
+  };
+}
+
+function updateReportProgress(percent, label, detail = "") {
+  const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  reportProgress.classList.remove("hidden");
+  reportProgressLabel.textContent = label || "Generating report";
+  reportProgressValue.textContent = `${safePercent}%`;
+  reportProgressDetail.textContent = detail;
+  reportProgressFill.style.width = `${safePercent}%`;
+  reportProgressBar.setAttribute("aria-valuenow", String(safePercent));
+}
+
+function completeReportProgress(detail = "") {
+  reportProgress.classList.remove("error");
+  reportProgress.classList.add("complete");
+  updateReportProgress(100, "Report ready", detail);
+  scheduleReportProgressHide(1400);
+}
+
+function failReportProgress(label) {
+  reportProgress.classList.remove("complete");
+  reportProgress.classList.add("error");
+  reportProgressLabel.textContent = label || "Report generation stopped";
+  reportProgressDetail.textContent = "See the status message for details.";
+  scheduleReportProgressHide(2600);
+}
+
+function scheduleReportProgressHide(delayMs) {
+  if (state.reportProgressHideTimer) clearTimeout(state.reportProgressHideTimer);
+  state.reportProgressHideTimer = setTimeout(() => {
+    reportProgress.classList.add("hidden");
+    state.reportProgressHideTimer = null;
+  }, delayMs);
+}
+
+function setReportLoadingState(isLoading) {
+  generateReportButton.disabled = Boolean(isLoading);
+  generateReportButton.textContent = isLoading ? "Generating..." : "Generate Report";
+  if (isLoading) {
+    exportReportButton.disabled = true;
+  } else {
+    updateExportAvailability();
+  }
 }

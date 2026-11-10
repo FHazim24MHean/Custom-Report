@@ -27,3 +27,17 @@ test("captures individual failures without stopping the report", async () => {
   assert.equal(results[0].status, "fulfilled");
   assert.equal(results[1].status, "rejected");
 });
+
+test("reports task completion progress", async () => {
+  const updates = [];
+  await runTaskPool(
+    [async () => 1, async () => 2, async () => 3],
+    {
+      concurrency: 2,
+      onProgress: (progress) => updates.push(progress),
+    }
+  );
+
+  assert.deepEqual(updates.map((entry) => entry.completed), [1, 2, 3]);
+  assert.deepEqual(updates.map((entry) => entry.total), [3, 3, 3]);
+});
