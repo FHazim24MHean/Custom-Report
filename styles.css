@@ -191,6 +191,12 @@ h1 {
   padding: 8px;
 }
 
+.device-options-empty {
+  padding: 12px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .device-option {
   display: flex;
   align-items: center;

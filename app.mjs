@@ -21,6 +21,11 @@ import {
 import { buildBillingAnalytics } from "/js/domain/billing-analytics.mjs";
 import { filterColumnGroups, getColumnsWithData } from "/js/domain/table-columns.mjs";
 import { buildUserDefinedReportRequestSpecs } from "/js/domain/value-description-aliases.mjs";
+import {
+  filterReportDevicesByGroupType,
+  getReportDeviceGroupType,
+  normalizeReportDeviceGroupFilter,
+} from "/js/domain/report-device-filter.mjs";
 
 import {
   API_CONFIG,
@@ -68,6 +73,7 @@ const state = {
   devices: [],
   configDevices: [],
   selectedDeviceIds: new Set(),
+  reportGroupFilter: "all",
   selectedType: "histvalues",
   selectedTimeRange: "today",
   projectName: API_CONFIG.defaultProjectName,
@@ -128,6 +134,7 @@ const state = {
 
 const projectSelect = document.getElementById("projectSelect");
 const refreshProjectsButton = document.getElementById("refreshProjectsButton");
+const reportGroupFilterSelect = document.getElementById("reportGroupFilterSelect");
 const deviceDropdown = document.getElementById("deviceDropdown");
 const deviceDropdownButton = document.getElementById("deviceDropdownButton");
 const deviceDropdownMenu = document.getElementById("deviceDropdownMenu");
@@ -383,6 +390,12 @@ function bindEvents() {
   projectSelect.addEventListener("change", async (event) => {
     state.projectName = event.target.value;
     await loadDevices();
+  });
+
+  reportGroupFilterSelect.addEventListener("change", (event) => {
+    state.reportGroupFilter = normalizeReportDeviceGroupFilter(event.target.value);
+    pruneSelectedReportDevicesToFilter();
+    renderDeviceOptions();
   });
 
   configProjectSelect.addEventListener("change", async (event) => {
@@ -2372,6 +2385,7 @@ function syncLoadedDevicesForProject(projectName) {
 
   if (state.projectName === safeProjectName) {
     state.devices = applyProjectSubstationMappings(state.devices, safeProjectName);
+    pruneSelectedReportDevicesToFilter();
     renderDeviceOptions();
     if (state.latestDeviceTables.length) {
       const nextDeviceTables = state.latestDeviceTables.map((deviceTable) => ({
@@ -4309,6 +4323,8 @@ async function applyReportLinkRequest(request) {
   }
 
   const group = matchingGroups[0];
+  state.reportGroupFilter = group.groupType;
+  reportGroupFilterSelect.value = group.groupType;
   const assignments =
     group.groupType === "main-intake"
       ? getProjectMainIntakeAssignments(state.projectName)
@@ -4318,6 +4334,11 @@ async function applyReportLinkRequest(request) {
     .filter((device) => {
       const assignment = assignments[String(device?.devid || "")];
       return (
+        getReportDeviceGroupType(
+          device?.devid,
+          getProjectDeviceAssignments(state.projectName),
+          getProjectMainIntakeAssignments(state.projectName)
+        ) === group.groupType &&
         String(assignment?.[assignmentGroupKey] || "") === String(group.id || "") &&
         normalizeElectricalSide(assignment?.side) === request.side
       );
@@ -4690,9 +4711,10 @@ function normalizeDevices(payload) {
 
 function renderDeviceOptions() {
   deviceOptions.innerHTML = "";
+  const filteredDevices = getReportFilteredDevices();
   updateDeviceSummary();
 
-  if (state.devices.length) {
+  if (filteredDevices.length) {
     const selectAllLabel = document.createElement("label");
     selectAllLabel.className = "device-option select-all-option";
 
@@ -4712,7 +4734,14 @@ function renderDeviceOptions() {
     deviceOptions.appendChild(selectAllLabel);
   }
 
-  state.devices.forEach((device) => {
+  if (!filteredDevices.length) {
+    const emptyMessage = document.createElement("div");
+    emptyMessage.className = "device-options-empty";
+    emptyMessage.textContent = "No devices match this group filter.";
+    deviceOptions.appendChild(emptyMessage);
+  }
+
+  filteredDevices.forEach((device) => {
     const label = document.createElement("label");
     label.className = "device-option";
 
@@ -4733,7 +4762,7 @@ function renderDeviceOptions() {
     });
 
     const text = document.createElement("span");
-    text.textContent = `${getPreferredDeviceLabel(device, { projectName: state.projectName })} (${device.devid}) | ${getDeviceSite(device)}`;
+    text.textContent = `${getPreferredDeviceLabel(device, { projectName: state.projectName })} (${device.devid}) | ${getReportDeviceGroupLabel(device.devid)}`;
 
     label.appendChild(checkbox);
     label.appendChild(text);
@@ -4748,11 +4777,47 @@ function updateDeviceSummary() {
   deviceDropdownButton.textContent = count ? `${count} device(s) selected` : "Select device(s)";
 }
 
+function getReportFilteredDevices() {
+  return filterReportDevicesByGroupType(
+    state.devices,
+    state.reportGroupFilter,
+    getProjectDeviceAssignments(state.projectName),
+    getProjectMainIntakeAssignments(state.projectName)
+  );
+}
+
+function pruneSelectedReportDevicesToFilter() {
+  const visibleIds = new Set(getReportFilteredDevices().map((device) => String(device.devid)));
+  state.selectedDeviceIds = new Set(
+    [...state.selectedDeviceIds].filter((deviceId) => visibleIds.has(String(deviceId)))
+  );
+}
+
+function getReportDeviceGroupLabel(deviceId) {
+  const groupType = getReportDeviceGroupType(
+    deviceId,
+    getProjectDeviceAssignments(state.projectName),
+    getProjectMainIntakeAssignments(state.projectName)
+  );
+  if (groupType === "main-intake") {
+    const name = getProjectAssignedMainIntake(state.projectName, deviceId);
+    const side = getProjectAssignedMainIntakeSide(state.projectName, deviceId);
+    return `Main Intake: ${name}${side ? ` | ${side}` : ""}`;
+  }
+  if (groupType === "substation") {
+    const name = getProjectAssignedSubstation(state.projectName, deviceId);
+    const side = getProjectAssignedSubstationSide(state.projectName, deviceId);
+    return `Substation: ${name}${side ? ` | ${side}` : ""}`;
+  }
+  return "Unassigned";
+}
+
 function setAllDevicesSelected(shouldSelect) {
+  const filteredDevices = getReportFilteredDevices();
   if (shouldSelect) {
-    state.devices.forEach((device) => state.selectedDeviceIds.add(device.devid));
+    filteredDevices.forEach((device) => state.selectedDeviceIds.add(device.devid));
   } else {
-    state.selectedDeviceIds.clear();
+    filteredDevices.forEach((device) => state.selectedDeviceIds.delete(device.devid));
   }
 
   deviceOptions.querySelectorAll('input[data-device-checkbox="true"]').forEach((checkbox) => {
@@ -4768,8 +4833,10 @@ function updateSelectAllDeviceCheckboxState() {
     return;
   }
 
-  const total = state.devices.length;
-  const selected = state.selectedDeviceIds.size;
+  const filteredDeviceIds = new Set(getReportFilteredDevices().map((device) => String(device.devid)));
+  const total = filteredDeviceIds.size;
+  const selected = [...state.selectedDeviceIds]
+    .filter((deviceId) => filteredDeviceIds.has(String(deviceId))).length;
   selectAllCheckbox.checked = total > 0 && selected === total;
   selectAllCheckbox.indeterminate = selected > 0 && selected < total;
 }
