@@ -26,6 +26,7 @@ import {
   getReportDeviceGroupType,
   normalizeReportDeviceGroupFilter,
 } from "/js/domain/report-device-filter.mjs";
+import { appendGridVisEventTypes } from "/js/domain/gridvis-event-types.mjs";
 
 import {
   API_CONFIG,
@@ -5724,11 +5725,9 @@ function buildHistoryUrl(projectName, deviceId, filters, nominalOptions = null) 
   if (filters.type === "hist-events") {
     params.set("start", windowQuery.start);
     params.set("end", windowQuery.end);
+    appendGridVisEventTypes(params);
     if (windowQuery.anchor) {
       params.set("anchor", windowQuery.anchor);
-    }
-    if (API_CONFIG.eventsTypes) {
-      params.set("types", API_CONFIG.eventsTypes);
     }
   } else {
     // Keep the query parameter order as requested: value, type, timebase, start, end.

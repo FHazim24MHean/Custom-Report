@@ -17,7 +17,6 @@ export const API_CONFIG = {
     last365: 365,
   },
   defaultProjectName: "",
-  eventsTypes: "",
   debugApi: true,
 };
 
