@@ -222,13 +222,6 @@ export const NOMINAL_STATUS_COLUMNS = [
 export const LEGEND_GAP_ROWS = 5;
 export const CONFIG_STORAGE_KEY = "custom-report-device-threshold-config-v1";
 export const TRANSFORMER_MAPPING_STORAGE_KEY = "custom-report-transformer-mappings-v1";
-export const DEMO_DATA_CONFIG = {
-  projectId: "__demo_project__",
-  projectName: "Demo Project",
-  devicePrefix: "DEMO-DEV",
-  deviceNamePrefix: "Demo Device",
-  deviceCount: 50,
-};
 export const MAIN_INTAKE_REPORT_COLUMNS = [
   "Main Intake",
   "Device",

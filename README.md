@@ -169,7 +169,7 @@ The deep endpoint returns HTTP `503` when configuration cannot be read or GridVi
 Build on 64-bit Windows with Node.js and npm installed:
 
 ```powershell
-node .\service\build-service-package.js --version 1.3.0 --winsw-version 2.12.0 --winsw-asset WinSW.NET461.exe --winsw-sha256 B5066B7BBDFBA1293E5D15CDA3CAAEA88FBEAB35BD5B38C41C913D492AADFC4F
+node .\service\build-service-package.js --version 1.3.1 --winsw-version 2.12.0 --winsw-asset WinSW.NET461.exe --winsw-sha256 B5066B7BBDFBA1293E5D15CDA3CAAEA88FBEAB35BD5B38C41C913D492AADFC4F
 ```
 
 The generated package contains Node.js, the application, export libraries, WinSW, and installer scripts. The target host does not need Node.js, npm, SQL, or internet access.

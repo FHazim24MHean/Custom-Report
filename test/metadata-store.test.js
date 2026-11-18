@@ -86,3 +86,24 @@ test("recovers the backup when an interrupted replacement leaves no primary file
   assert.deepEqual(recovered.substations.map((item) => item.name), ["SS1"]);
   assert.equal(fs.existsSync(filePath), true);
 });
+
+test("accepts the extended calendar ranges for saved report links", async (t) => {
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "custom-report-ranges-"));
+  t.after(() => fs.promises.rm(directory, { recursive: true, force: true }));
+  const store = new MetadataStore(path.join(directory, "metadata.json"));
+  const project = await store.createSubstation("Project A", "SS1");
+  const groupId = project.substations[0].id;
+
+  for (const range of ["thismonth", "lastmonth", "last6"]) {
+    const link = await store.createReportLink({
+      slug: `ss1-${range}`,
+      projectName: "Project A",
+      groupType: "substation",
+      groupId,
+      side: "HT",
+      range,
+      reportType: "histvalues",
+    });
+    assert.equal(link.range, range);
+  }
+});

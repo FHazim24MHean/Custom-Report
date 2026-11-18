@@ -27,13 +27,13 @@ import {
   normalizeReportDeviceGroupFilter,
 } from "/js/domain/report-device-filter.mjs";
 import { appendGridVisEventTypes } from "/js/domain/gridvis-event-types.mjs";
+import { buildCalendarTimeWindowQuery } from "/js/domain/report-time-ranges.mjs";
 
 import {
   API_CONFIG,
   CAPABILITY_TYPE_PREFERENCES,
   CONFIG_STORAGE_KEY,
   DEFAULT_VOLTAGE_CLASS,
-  DEMO_DATA_CONFIG,
   ELECTRICAL_SIDES,
   EXTRA_NOMINAL_METRIC_DEFINITIONS,
   HIDDEN_NOMINAL_METRIC_KEYS,
@@ -2216,16 +2216,6 @@ function isDeviceAssignedToMainIntake(deviceId, projectName = state.projectName)
   return Boolean(mainIntakeName && mainIntakeName !== "Unassigned");
 }
 
-function getDeterministicDummyNumber(seedText, min, max, decimals = 1) {
-  const text = String(seedText || "");
-  let hash = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = (hash * 31 + text.charCodeAt(index)) % 100000;
-  }
-  const value = min + (hash / 99999) * (max - min);
-  return Number(value.toFixed(decimals));
-}
-
 function buildMainIntakeReportRows(projectName) {
   const safeProjectName = String(projectName || "").trim();
   if (!safeProjectName) {
@@ -2750,8 +2740,11 @@ function getReportLinkRangeLabel(link) {
   const labels = {
     today: "Today",
     yesterday: "Yesterday",
+    thismonth: "This Month",
+    lastmonth: "Last Month",
     last7: "Last 7 Days",
     last30: "Last 30 Days",
+    last6: "Last 6 Months",
     last365: "Last 365 Days",
     lastyear: "Last Year",
   };
@@ -3708,10 +3701,6 @@ async function fetchMonthlyThresholdReadings(projectName, deviceIds, monthRange)
     endDate: monthRange?.endDate,
   };
 
-  if (isDemoProjectName(projectName)) {
-    return buildDemoNominalReadings(deviceIds, filters);
-  }
-
   state.latestApiUrls = [];
   const requests = [];
 
@@ -4151,7 +4140,7 @@ async function loadProjects() {
   try {
     const url = buildUrl(buildApiPath("projects"));
     const payload = await getJson(url);
-    state.projects = ensureDemoProject(normalizeProjects(payload));
+    state.projects = normalizeProjects(payload);
     if (!state.projects.length) {
       throw new Error("Projects API returned no usable records.");
     }
@@ -4177,19 +4166,19 @@ async function loadProjects() {
     await loadConfigDevices();
     setStatus(`Projects loaded. Selected project: ${getProjectDisplayName(state.projectName)}`);
   } catch (error) {
-    state.projects = ensureDemoProject([]);
+    state.projects = [];
     state.devices = [];
+    state.configDevices = [];
+    state.reportLinks = [];
     state.selectedDeviceIds.clear();
+    state.configSelectedDeviceIds.clear();
+    state.projectName = "";
+    state.configProjectName = "";
     renderProjectOptions();
-
-    state.projectName = getDemoProjectRecord().pname;
-    state.configProjectName = state.projectName;
-    projectSelect.value = state.projectName;
-    configProjectSelect.value = state.configProjectName;
-    await loadDevices();
-    await loadConfigDevices();
+    renderDeviceOptions();
+    renderConfigPage();
     renderDeviceTables([]);
-    setStatus(`Projects API unavailable (${error.message}). Loaded Demo Project.`);
+    setStatus(`Projects API unavailable. ${error.message}`, true);
   }
 }
 
@@ -4354,7 +4343,18 @@ async function applyReportLinkRequest(request) {
     return;
   }
 
-  const allowedRanges = new Set(["today", "yesterday", "last7", "last30", "last365", "lastyear", "custom"]);
+  const allowedRanges = new Set([
+    "today",
+    "yesterday",
+    "thismonth",
+    "lastmonth",
+    "last7",
+    "last30",
+    "last6",
+    "last365",
+    "lastyear",
+    "custom",
+  ]);
   if (request.range) {
     if (!allowedRanges.has(request.range)) {
       setStatus(`Report link range "${request.range}" is invalid.`, true);
@@ -4413,25 +4413,6 @@ function normalizeProjects(payload) {
       return pname ? { pname: String(pname), name: String(name) } : null;
     })
     .filter(Boolean);
-}
-
-function getDemoProjectRecord() {
-  return {
-    pname: DEMO_DATA_CONFIG.projectId,
-    name: DEMO_DATA_CONFIG.projectName,
-  };
-}
-
-function ensureDemoProject(projects) {
-  const safeProjects = Array.isArray(projects) ? projects.filter(Boolean) : [];
-  if (!safeProjects.some((project) => project?.pname === DEMO_DATA_CONFIG.projectId)) {
-    safeProjects.push(getDemoProjectRecord());
-  }
-  return safeProjects;
-}
-
-function isDemoProjectName(projectName) {
-  return String(projectName || "") === DEMO_DATA_CONFIG.projectId;
 }
 
 function normalizeVoltageClass(value) {
@@ -4522,20 +4503,6 @@ function getVoltageClassLegendRows() {
   }));
 }
 
-function buildDemoDevices() {
-  return Array.from({ length: DEMO_DATA_CONFIG.deviceCount }, (_, index) => {
-    const number = String(index + 1).padStart(2, "0");
-    const voltageClass = VOLTAGE_CLASS_VALUES[index % VOLTAGE_CLASS_VALUES.length];
-    const siteNumber = Math.floor(index / 10) + 1;
-    return {
-      devid: `${DEMO_DATA_CONFIG.devicePrefix}-${number}`,
-      name: `${DEMO_DATA_CONFIG.deviceNamePrefix} ${number}`,
-      voltageClass,
-      site: `Site ${siteNumber}`,
-    };
-  });
-}
-
 function cloneDeviceList(devices) {
   return (Array.isArray(devices) ? devices : []).map((device) => ({ ...device }));
 }
@@ -4544,36 +4511,9 @@ async function fetchProjectDevices(projectName) {
   if (!projectName) {
     return [];
   }
-  if (isDemoProjectName(projectName)) {
-    return buildDemoDevices();
-  }
   const url = buildUrl(buildApiPath("projects", projectName, "devices"));
   const payload = await getJson(url);
   return normalizeDevices(payload);
-}
-
-function getDemoDeviceNumber(deviceId) {
-  const match = String(deviceId || "").match(/(\d+)\s*$/);
-  if (!match) {
-    return Number.NaN;
-  }
-  return Number.parseInt(match[1], 10);
-}
-
-function isDemoDeviceMostlyCompliant(deviceId) {
-  const deviceNumber = getDemoDeviceNumber(deviceId);
-  if (!Number.isFinite(deviceNumber)) {
-    return false;
-  }
-  return deviceNumber <= 5;
-}
-
-function isDemoDeviceWarningBiased(deviceId) {
-  const deviceNumber = getDemoDeviceNumber(deviceId);
-  if (!Number.isFinite(deviceNumber)) {
-    return false;
-  }
-  return deviceNumber >= 3 && deviceNumber <= 5;
 }
 
 function renderProjectOptions() {
@@ -4627,8 +4567,7 @@ async function loadDevices() {
     await migrateLegacyBrowserConfiguration(state.projectName, devices);
     state.devices = applyProjectSubstationMappings(devices, state.projectName);
     renderDeviceOptions();
-    const sourceLabel = isDemoProjectName(state.projectName) ? "demo devices" : "devices";
-    setStatus(`Loaded ${sourceLabel}: ${state.devices.length}${mappingWarning}`);
+    setStatus(`Loaded devices: ${state.devices.length}${mappingWarning}`);
   } catch (error) {
     state.devices = [];
     renderDeviceOptions();
@@ -4995,12 +4934,6 @@ async function fetchReportRows(projectName, deviceIds, filters) {
   logApi("Generate report filters", { projectName, deviceIds, filters });
   state.latestApiUrls = [];
 
-  if (isDemoProjectName(projectName)) {
-    const demoReadings = buildDemoReadings(deviceIds, filters);
-    filters.onProgress?.({ phase: "data", completed: 1, total: 1 });
-    return demoReadings;
-  }
-
   const requests = [];
   if (filters.type === "hist-events") {
     deviceIds.forEach((deviceId, index) => {
@@ -5098,368 +5031,11 @@ async function fetchReportRows(projectName, deviceIds, filters) {
   return fulfilled.flatMap((item) => item.value);
 }
 
-function buildDemoReadings(deviceIds, filters) {
-  if (filters.type === "hist-events") {
-    return buildDemoEventReadings(deviceIds, filters);
-  }
-  return buildDemoNominalReadings(deviceIds, filters);
-}
-
-function buildDemoNominalReadings(deviceIds, filters) {
-  const timestamps = buildDemoTimestamps(filters);
-  const readings = [];
-  const deviceVoltageClassById = new Map(
-    (Array.isArray(state.devices) ? state.devices : []).map((device) => [
-      String(device?.devid || ""),
-      normalizeVoltageClass(device?.voltageClass),
-    ])
-  );
-
-  deviceIds.forEach((deviceId) => {
-    const deviceSeed = hashText(deviceId);
-    const mostlyCompliantDevice = isDemoDeviceMostlyCompliant(deviceId);
-    const warningBiasedDevice = isDemoDeviceWarningBiased(deviceId);
-    const deviceVoltageClass = normalizeVoltageClass(
-      deviceVoltageClassById.get(String(deviceId))
-    );
-    const voltageTolerance = getVoltageToleranceForClass(deviceVoltageClass);
-    const voltageRange = Math.max(1, voltageTolerance.max - voltageTolerance.min);
-    timestamps.forEach((capturedAt, timeIndex) => {
-      API_CONFIG.nominalValueMetrics.forEach((metricName, metricIndex) => {
-        API_CONFIG.nominalValuePhases.forEach((phaseName, phaseIndex) => {
-          const targetColumn = getNominalColumnKey(metricName, phaseName);
-          const unitColumn = getNominalUnitColumnKey(metricName);
-          if (!targetColumn) {
-            return;
-          }
-
-          const seed = (deviceSeed + (timeIndex + 1) * 97 + (metricIndex + 1) * 31 + (phaseIndex + 1) * 17) % 1000;
-          const isVoltage = targetColumn.startsWith("V");
-          const step = (seed % 100) / 100;
-          const prefersHighEdge = (seed + timeIndex) % 2 === 0;
-          const avg = isVoltage
-            ? warningBiasedDevice
-              ? voltageTolerance.min +
-                voltageRange * (prefersHighEdge ? 0.84 + step * 0.05 : 0.11 + step * 0.05)
-              : voltageTolerance.min + voltageRange * (0.42 + step * 0.16)
-            : warningBiasedDevice
-              ? 4.05 + step * 0.45
-              : 4.8 + step * 0.35;
-          const band = isVoltage
-            ? warningBiasedDevice
-              ? voltageRange * (0.006 + ((seed % 2) / 500))
-              : voltageRange * (0.015 + ((seed % 3) / 200))
-            : warningBiasedDevice
-              ? 0.03 + (seed % 2) / 100
-              : 0.08 + (seed % 4) / 100;
-          let min = avg - band;
-          let max = avg + band;
-
-          readings.push({
-            deviceId,
-            capturedAt,
-            metrics: {
-              [targetColumn]: avg.toFixed(2),
-              [`${targetColumn}_Min`]: min.toFixed(2),
-              [`${targetColumn}_Max`]: max.toFixed(2),
-              ...(unitColumn ? { [unitColumn]: isVoltage ? "V" : "A" } : {}),
-            },
-          });
-        });
-      });
-
-      const shouldInjectForcedNonCompliant =
-        !mostlyCompliantDevice;
-      const extraMetrics = buildDemoExtraNominalMetrics(
-        deviceSeed,
-        timeIndex,
-        {
-          mostlyCompliantDevice,
-          warningBiasedDevice,
-          forceNonCompliant: shouldInjectForcedNonCompliant,
-        }
-      );
-      readings.push({
-        deviceId,
-        capturedAt,
-        metrics: extraMetrics,
-      });
-    });
-  });
-
-  return readings;
-}
-
-function buildDemoExtraNominalMetrics(
-  deviceSeed,
-  timeIndex,
-  { mostlyCompliantDevice = false, warningBiasedDevice = false, forceNonCompliant = false } = {}
-) {
-  const baseSeed = (deviceSeed + (timeIndex + 1) * 113) % 1000;
-  const failingMetricPairs = [
-    ["TOP_OIL_TEMPERATURE", "WINDING_TEMPERATURE"],
-    ["TOP_OIL_TEMPERATURE", "LOAD_PERCENT"],
-    ["TOP_OIL_TEMPERATURE", "V_UNBALANCE"],
-    ["TOP_OIL_TEMPERATURE", "A_UNBALANCE"],
-    ["TOP_OIL_TEMPERATURE", "POWER_FACTOR"],
-    ["WINDING_TEMPERATURE", "LOAD_PERCENT"],
-    ["WINDING_TEMPERATURE", "V_UNBALANCE"],
-    ["WINDING_TEMPERATURE", "A_UNBALANCE"],
-    ["WINDING_TEMPERATURE", "POWER_FACTOR"],
-    ["LOAD_PERCENT", "V_UNBALANCE"],
-    ["LOAD_PERCENT", "A_UNBALANCE"],
-    ["LOAD_PERCENT", "POWER_FACTOR"],
-    ["V_UNBALANCE", "A_UNBALANCE"],
-    ["V_UNBALANCE", "POWER_FACTOR"],
-    ["A_UNBALANCE", "POWER_FACTOR"],
-  ];
-  const failedMetrics = forceNonCompliant
-    ? new Set(failingMetricPairs[deviceSeed % failingMetricPairs.length])
-    : new Set();
-  const prefersHighEdge = (baseSeed + timeIndex) % 2 === 0;
-
-  const topOilRaw = failedMetrics.has("TOP_OIL_TEMPERATURE")
-    ? 96 + ((baseSeed % 20) / 10)
-    : warningBiasedDevice
-      ? (prefersHighEdge ? 73 + ((baseSeed % 40) / 10) : 8 + ((baseSeed % 60) / 10))
-      : 58 + ((baseSeed % 160) / 10);
-  const windingRaw = failedMetrics.has("WINDING_TEMPERATURE")
-    ? 124 + ((baseSeed % 20) / 10)
-    : warningBiasedDevice
-      ? (prefersHighEdge ? 97 + ((baseSeed % 70) / 10) : 12 + ((baseSeed % 80) / 10))
-      : 72 + ((baseSeed % 180) / 10);
-  const loadPercentRaw = failedMetrics.has("LOAD_PERCENT")
-    ? 104 + ((baseSeed % 30) / 10)
-    : warningBiasedDevice
-      ? (prefersHighEdge ? 82 + ((baseSeed % 90) / 10) : 8 + ((baseSeed % 100) / 10))
-      : 48 + ((baseSeed % 340) / 10);
-  const vUnbalanceRaw = failedMetrics.has("V_UNBALANCE")
-    ? 2.35 + ((baseSeed % 20) / 100)
-    : warningBiasedDevice
-      ? (prefersHighEdge ? 1.63 + ((baseSeed % 12) / 100) : 0.08 + ((baseSeed % 20) / 100))
-      : 0.45 + ((baseSeed % 95) / 100);
-  const aUnbalanceRaw = failedMetrics.has("A_UNBALANCE")
-    ? 5.40 + ((baseSeed % 40) / 100)
-    : warningBiasedDevice
-      ? (prefersHighEdge ? 4.05 + ((baseSeed % 60) / 100) : 0.20 + ((baseSeed % 70) / 100))
-      : 1.20 + ((baseSeed % 250) / 100);
-  const powerFactorRaw = failedMetrics.has("POWER_FACTOR")
-    ? 0.84 + ((baseSeed % 20) / 1000)
-    : warningBiasedDevice
-      ? (prefersHighEdge ? 0.981 + ((baseSeed % 8) / 1000) : 0.904 + ((baseSeed % 12) / 1000))
-      : 0.95 + ((baseSeed % 35) / 1000);
-
-  const topOilBand = failedMetrics.has("TOP_OIL_TEMPERATURE") ? 4.8 : warningBiasedDevice ? 0.9 : 1.6;
-  const windingBand = failedMetrics.has("WINDING_TEMPERATURE") ? 6.2 : warningBiasedDevice ? 1.2 : 2.1;
-  const loadPercentBand = failedMetrics.has("LOAD_PERCENT") ? 8.5 : warningBiasedDevice ? 1.8 : 3.5;
-  const vUnbalanceBand = failedMetrics.has("V_UNBALANCE") ? 0.4 : warningBiasedDevice ? 0.06 : 0.15;
-  const aUnbalanceBand = failedMetrics.has("A_UNBALANCE") ? 0.75 : warningBiasedDevice ? 0.12 : 0.35;
-  const powerFactorBand = failedMetrics.has("POWER_FACTOR") ? 0.03 : warningBiasedDevice ? 0.004 : 0.01;
-  const dailyImportedWh = 180000 + (deviceSeed % 650) * 600;
-  const importedOpeningWh = 5000000 + (deviceSeed % 900) * 10000 + timeIndex * dailyImportedWh;
-  const importedClosingWh = importedOpeningWh + dailyImportedWh;
-  const hasExportedEnergy = deviceSeed % 4 === 0;
-  const dailyExportedWh = hasExportedEnergy ? 12000 + (deviceSeed % 80) * 250 : 0;
-  const exportedOpeningWh = 250000 + (deviceSeed % 120) * 1000 + timeIndex * dailyExportedWh;
-  const exportedClosingWh = exportedOpeningWh + dailyExportedWh;
-  const activePowerW = 18000 + (deviceSeed % 700) * 90 + timeIndex * 350;
-  const activePowerBandW = 4000 + (deviceSeed % 90) * 40;
-
-  return {
-    TOP_OIL_TEMPERATURE: topOilRaw.toFixed(2),
-    TOP_OIL_TEMPERATURE_Min: (topOilRaw - topOilBand).toFixed(2),
-    TOP_OIL_TEMPERATURE_Max: (topOilRaw + topOilBand).toFixed(2),
-    WINDING_TEMPERATURE: windingRaw.toFixed(2),
-    WINDING_TEMPERATURE_Min: (windingRaw - windingBand).toFixed(2),
-    WINDING_TEMPERATURE_Max: (windingRaw + windingBand).toFixed(2),
-    LOAD_PERCENT: loadPercentRaw.toFixed(2),
-    LOAD_PERCENT_Min: Math.max(0, loadPercentRaw - loadPercentBand).toFixed(2),
-    LOAD_PERCENT_Max: (loadPercentRaw + loadPercentBand).toFixed(2),
-    V_UNBALANCE: vUnbalanceRaw.toFixed(2),
-    V_UNBALANCE_Min: Math.max(0, vUnbalanceRaw - vUnbalanceBand).toFixed(2),
-    V_UNBALANCE_Max: (vUnbalanceRaw + vUnbalanceBand).toFixed(2),
-    A_UNBALANCE: aUnbalanceRaw.toFixed(2),
-    A_UNBALANCE_Min: Math.max(0, aUnbalanceRaw - aUnbalanceBand).toFixed(2),
-    A_UNBALANCE_Max: (aUnbalanceRaw + aUnbalanceBand).toFixed(2),
-    POWER_FACTOR: powerFactorRaw.toFixed(2),
-    POWER_FACTOR_Min: Math.max(0, powerFactorRaw - powerFactorBand).toFixed(2),
-    POWER_FACTOR_Max: Math.min(1.2, powerFactorRaw + powerFactorBand).toFixed(2),
-    POWER_ACTIVE_SUM: activePowerW.toFixed(2),
-    POWER_ACTIVE_SUM_Min: Math.max(0, activePowerW - activePowerBandW).toFixed(2),
-    POWER_ACTIVE_SUM_Max: (activePowerW + activePowerBandW).toFixed(2),
-    ACTIVE_ENERGY_CONSUMED: ((importedOpeningWh + importedClosingWh) / 2).toFixed(2),
-    ACTIVE_ENERGY_CONSUMED_Min: importedOpeningWh.toFixed(2),
-    ACTIVE_ENERGY_CONSUMED_Max: importedClosingWh.toFixed(2),
-    ACTIVE_ENERGY_SUPPLIED: ((exportedOpeningWh + exportedClosingWh) / 2).toFixed(2),
-    ACTIVE_ENERGY_SUPPLIED_Min: exportedOpeningWh.toFixed(2),
-    ACTIVE_ENERGY_SUPPLIED_Max: exportedClosingWh.toFixed(2),
-    TopOilTemperatureUnit: "degC",
-    WindingTemperatureUnit: "degC",
-    LoadPercentUnit: "%",
-    VUnbalanceUnit: "%",
-    AUnbalanceUnit: "%",
-    PowerFactorUnit: "",
-    PowerActiveSumUnit: "W",
-    ActiveEnergyConsumedUnit: "Wh",
-    ActiveEnergySuppliedUnit: "Wh",
-  };
-}
-
-function buildDemoEventReadings(deviceIds, filters) {
-  const timestamps = buildDemoTimestamps(filters);
-  const eventCatalog = [
-    { type: "Under Voltage", phase: "L1-L2", sagMin: 8, sagMax: 18 },
-    { type: "Voltage Dip", phase: "L2-L3", sagMin: 10, sagMax: 22 },
-    { type: "Voltage Sag", phase: "L3-L1", sagMin: 12, sagMax: 28 },
-    { type: "Short Interruption", phase: "L1-N", sagMin: 18, sagMax: 35 },
-  ];
-  const readings = [];
-  const deviceVoltageClassById = new Map(
-    (Array.isArray(state.devices) ? state.devices : []).map((device) => [
-      String(device?.devid || ""),
-      normalizeVoltageClass(device?.voltageClass),
-    ])
-  );
-  const nominalVoltageByClass = {
-    "400V": 415,
-    "11kV": 11000,
-    "33kV": 33000,
-  };
-
-  deviceIds.forEach((deviceId) => {
-    const deviceSeed = hashText(deviceId);
-    const voltageClass = normalizeVoltageClass(deviceVoltageClassById.get(String(deviceId)));
-    const nominalVoltage = nominalVoltageByClass[voltageClass] || nominalVoltageByClass[DEFAULT_VOLTAGE_CLASS];
-    timestamps.forEach((capturedAt, timeIndex) => {
-      const shouldEmit = timeIndex === 0 || (deviceSeed + timeIndex) % 3 === 0;
-      if (!shouldEmit) {
-        return;
-      }
-
-      const eventTemplate = eventCatalog[(deviceSeed + timeIndex) % eventCatalog.length];
-      const durationMs = Math.round(getDeterministicDummyNumber(`${deviceId}:${capturedAt}:duration`, 120, 960, 0));
-      const sagPercent = getDeterministicDummyNumber(
-        `${deviceId}:${capturedAt}:sag`,
-        eventTemplate.sagMin,
-        eventTemplate.sagMax,
-        2
-      );
-      const maxVoltage = getDeterministicDummyNumber(
-        `${deviceId}:${capturedAt}:maxvoltage`,
-        nominalVoltage * 0.98,
-        nominalVoltage * 1.02,
-        nominalVoltage >= 1000 ? 0 : 2
-      );
-      const minVoltage = Number((maxVoltage * (1 - sagPercent / 100)).toFixed(nominalVoltage >= 1000 ? 0 : 2));
-      readings.push({
-        deviceId,
-        capturedAt,
-        metrics: {
-          Event: `${eventTemplate.type} detected`,
-          EventType: eventTemplate.type,
-          Phase: eventTemplate.phase,
-          DurationMs: String(durationMs),
-          MinVoltage: String(minVoltage),
-          MaxVoltage: String(maxVoltage),
-          VoltageSag: String(sagPercent),
-        },
-      });
-    });
-  });
-
-  return readings;
-}
-
-function buildDemoTimestamps(filters) {
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const now = new Date();
-  let start = new Date(now);
-  let end = new Date(now);
-
-  switch (filters?.range) {
-    case "today":
-      break;
-    case "yesterday":
-      start = new Date(now.getTime() - DAY_MS);
-      end = new Date(now.getTime() - DAY_MS);
-      break;
-    case "last7":
-      start = new Date(now.getTime() - 6 * DAY_MS);
-      break;
-    case "last30":
-      start = new Date(now.getTime() - 29 * DAY_MS);
-      break;
-    case "last365":
-      start = new Date(now.getTime() - 364 * DAY_MS);
-      break;
-    case "lastyear": {
-      const year = now.getFullYear() - 1;
-      start = new Date(year, 0, 1);
-      end = new Date(year, 11, 31);
-      break;
-    }
-    case "custom":
-      if (filters?.startDate) {
-        start = new Date(`${filters.startDate}T00:00:00`);
-      }
-      if (filters?.endDate) {
-        end = new Date(`${filters.endDate}T00:00:00`);
-      }
-      break;
-    default:
-      break;
-  }
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return [new Date(now.setHours(12, 0, 0, 0)).toISOString()];
-  }
-
-  if (start.getTime() > end.getTime()) {
-    const temp = start;
-    start = end;
-    end = temp;
-  }
-
-  const totalDays = Math.max(1, Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1);
-  let targetPoints = totalDays;
-  if (totalDays > 14 && totalDays <= 45) {
-    targetPoints = 15;
-  } else if (totalDays > 45) {
-    targetPoints = 18;
-  }
-  targetPoints = Math.max(1, targetPoints);
-
-  const timestamps = [];
-  const seen = new Set();
-  for (let index = 0; index < targetPoints; index += 1) {
-    const ratio = targetPoints === 1 ? 0 : index / (targetPoints - 1);
-    const dayOffset = Math.round(ratio * (totalDays - 1));
-    const date = new Date(start.getTime() + dayOffset * DAY_MS);
-    date.setHours(12, 0, 0, 0);
-    const iso = date.toISOString();
-    if (!seen.has(iso)) {
-      seen.add(iso);
-      timestamps.push(iso);
-    }
-  }
-
-  return timestamps.length ? timestamps : [new Date(now.setHours(12, 0, 0, 0)).toISOString()];
-}
-
-function hashText(value) {
-  const text = String(value || "");
-  let hash = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-  }
-  return hash;
-}
-
 async function fetchDeviceValueDescriptionsForDevices(projectName, deviceIds, options = {}) {
   const safeProjectName = String(projectName || "").trim();
   const safeDeviceIds = Array.isArray(deviceIds) ? deviceIds.map((deviceId) => String(deviceId || "").trim()).filter(Boolean) : [];
   const output = new Map();
-  if (!safeProjectName || !safeDeviceIds.length || isDemoProjectName(safeProjectName)) {
+  if (!safeProjectName || !safeDeviceIds.length) {
     return output;
   }
 
@@ -5761,6 +5337,11 @@ function buildTimeWindowQuery(filters) {
       start: `UTCSEC_${Math.floor(startDate.getTime() / 1000)}`,
       end: `UTCSEC_${Math.floor(endDate.getTime() / 1000)}`,
     };
+  }
+
+  const calendarWindow = buildCalendarTimeWindowQuery(filters.range);
+  if (calendarWindow) {
+    return calendarWindow;
   }
 
   const named = API_CONFIG.namedRanges[filters.range];

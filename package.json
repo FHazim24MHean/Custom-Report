@@ -1,6 +1,6 @@
 {
   "name": "custom-report-generator",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "scripts": {
     "start": "node server.js",
